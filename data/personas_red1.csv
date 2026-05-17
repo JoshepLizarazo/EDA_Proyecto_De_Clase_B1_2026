@@ -1,0 +1,26 @@
+id,nombre,edad,estrato,ocupacion
+P001,Ana Torres,28,3,Docente
+P002,Luis Herrera,35,2,Comerciante
+P003,Maria Gomez,22,4,Estudiante
+P004,Carlos Ruiz,45,3,Médico
+P005,Laura Mora,31,3,Enfermera
+P006,Pedro Diaz,19,2,Estudiante
+P007,Sofia Castro,40,5,Abogada
+P008,Andres Leon,27,2,Conductor
+P009,Camila Rios,33,4,Ingeniera
+P010,Diego Silva,50,3,Profesor
+P011,Valentina Cruz,24,3,Estudiante
+P012,Juan Perez,38,2,Mecánico
+P013,Daniela Vega,29,4,Contadora
+P014,Miguel Angel,44,3,Gerente
+P015,Isabela Cano,21,3,Estudiante
+P016,Sebastian Mora,36,2,Taxista
+P017,Alejandra Rios,26,4,Diseñadora
+P018,Felipe Vargas,48,3,Arquitecto
+P019,Natalia Blanco,32,3,Farmacéutica
+P020,Esteban Rojas,23,2,Estudiante
+P021,Juliana Parra,37,4,Psicóloga
+P022,Tomas Gutierrez,55,3,Jubilado
+P023,Sara Jimenez,18,2,Estudiante
+P024,Ricardo Mendez,41,3,Policía
+P025,Manuela Ospina,30,4,Veterinaria
