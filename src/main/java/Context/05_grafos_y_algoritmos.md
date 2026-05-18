@@ -266,9 +266,9 @@ Un nodo con CB alto aparece en el camino más corto entre muchos pares de nodos.
 
 ```
 Comunidad A (nodos 1-5)        Comunidad B (nodos 6-10)
-   1─2─3                           6─7─8
+   1─2─3                           7─8─9
    │   │                           │   │
-   4───5 ──── PUENTE ──── 6─────── 9──10
+   4───5 ──── PUENTE ────────────── 6──10
              (CB alto)
 ```
 
@@ -407,7 +407,7 @@ BFSPonderado devuelve: [A, B, D] con prob = 0.72
    foco P001 → destino P002: camino [P001, P045, P002], prob = 0.63
                                           ↑ intermedio → score[P045] += 0.63
    foco P001 → destino P003: camino [P001, P045, P088, P003], prob = 0.41
-                                          ↑ intermedios → score[P045] += 0.41, score[P088] += 0.41
+                                      intermedios → score[P045] += 0.41, score[P088] += 0.41
 
 3. Los nodos que aparecen como intermediarios en muchas rutas críticas acumulan score alto.
    Son los "cuellos de botella" de la propagación.
@@ -417,8 +417,8 @@ BFSPonderado devuelve: [A, B, D] con prob = 0.72
 
 **Diferencia con Betweenness**: ambos identifican nodos estratégicos en rutas de propagación, pero:
 - Betweenness cuenta **caminos mínimos** (sin importar el peso)
-- BFSPonderado usa la **probabilidad real de la ruta** (captura la epidemiología)
-- Betweenness evalúa todos los pares (O(N²)); BFSPonderado solo evalúa K focos (O(K×N log N))
+- BFSPonderado usa la **probabilidad real de la ruta** (captura la epidemiología directamente)
+- Betweenness evalúa todos los pares O(N²); BFSPonderado solo evalúa K focos O(K×N log N)
 
 ---
 
@@ -445,7 +445,7 @@ Todos los factores están normalizados a [0.0, 1.0].
 #### Por qué estos pesos
 
 ```
-Factores de red    (α + δ = 0.35 + 0.15 = 0.50): cuánto puede PROPAGAR el virus
+Factores de red     (α + δ = 0.35 + 0.15 = 0.50): cuánto puede PROPAGAR el virus
 Factores personales (β + γ = 0.25 + 0.25 = 0.50): cuánto SUFRIRÍA el individuo
 
 → Peso igual a "cortar cadenas de contagio" y "proteger a los más vulnerables"
@@ -456,18 +456,18 @@ Factores personales (β + γ = 0.25 + 0.25 = 0.50): cuánto SUFRIRÍA el individ
 Dos personas susceptibles en la misma red:
 
 ```
-Persona A: CB=0.8, edad=30, estrato=1, grado=5 (max_grado=10)
-  score = 0.35×0.8 + 0.25×(30/90) + 0.25×((7-1)/6) + 0.15×(5/10)
+Persona A: CB_norm=0.8, edad=30, estrato=1, grado_norm=0.5
+  score = 0.35×0.8 + 0.25×(30/90) + 0.25×((7-1)/6) + 0.15×0.5
         = 0.28   + 0.083          + 0.25            + 0.075
         = 0.688
 
-Persona B: CB=0.2, edad=75, estrato=2, grado=3
-  score = 0.35×0.2 + 0.25×(75/90) + 0.25×((7-2)/6) + 0.15×(3/10)
+Persona B: CB_norm=0.2, edad=75, estrato=2, grado_norm=0.3
+  score = 0.35×0.2 + 0.25×(75/90) + 0.25×((7-2)/6) + 0.15×0.3
         = 0.07   + 0.208          + 0.208           + 0.045
         = 0.531
 ```
 
-A tiene mayor score por su posición en la red (CB y grado altos), aunque B es mayor. Híbrida priorizaría A porque vacunarlo tiene más impacto sistémico, pero B también puntuaría alto si hubiera menos nodos con betweenness alto.
+Híbrida prioriza A porque su posición en la red (betweenness y grado altos) tiene más impacto sistémico, aunque B sea mayor y más vulnerable individualmente.
 
 ---
 
@@ -482,49 +482,299 @@ A tiene mayor score por su posición en la red (CB y grado altos), aunque B es m
 | BFSPonderado | Prob. máxima de ruta | O(K × N log N) | Pesos de aristas desde K focos | Más barata que Betweenness; usa probabilidades reales | Solo evalúa K focos hipotéticos |
 | Híbrida | Score compuesto | O(N²) | Betweenness + grado + atributos | Más completa: combina red + perfil individual | Costosa; pesos α,β,γ,δ son heurísticos |
 
-### ¿Cuándo supera cada estrategia a las demás?
-
-- **Aleatoria** nunca supera a las demás en redes estructuradas; su valor es como referencia.
-- **Hubs** gana cuando la red tiene hubs muy marcados (distribución de grado muy heterogénea).
-- **Betweenness** gana cuando hay comunidades bien separadas y el riesgo está en los puentes.
-- **Comunidades** gana cuando la epidemia está concentrada en un grupo denso y aún no saltó a otros.
-- **BFSPonderado** es un buen balance entre costo y efectividad en redes con pesos heterogéneos.
-- **Híbrida** tiende a dar los mejores resultados en términos de vidas protegidas porque combina ambas dimensiones.
-
 ---
 
 ## 6. Propiedades de la red generada
 
-La red producida por `GeneradorPoblacion` tiene propiedades de redes sociales reales:
+La red producida por `GeneradorPoblacion` tiene propiedades de redes sociales reales que explican por qué las estrategias avanzadas superan a la aleatoria:
 
-### Estructura de comunidades
+- **Estructura de comunidades**: los estratos forman grupos densos internamente y poco conectados entre sí. `VacunacionComunidades` y `VacunacionBetweenness` aprovechan esto.
+- **Hubs**: los nodos comunitarios (mercado, iglesia) tienen grado mucho mayor que el promedio. `VacunacionHubs` y `VacunacionBFSPonderado` los priorizan.
+- **Efecto small-world**: el diámetro de la red es pequeño gracias a las conexiones de largo alcance, aunque la mayoría de contactos son locales.
+- **Pesos heterogéneos**: cada arista tiene su propia `probContagio` calibrada por el perfil del nodo origen. `BFSPonderado` e `Híbrida` los usan directamente.
 
-Los estratos forman grupos densos internamente (alta densidad interna de aristas) y poco conectados entre sí. Esto es lo que hace que `VacunacionComunidades` sea efectiva: hay comunidades reales que detectar.
-
-### Hubs
-
-Los nodos comunitarios (mercado, iglesia, transporte) tienen grado mucho mayor que el promedio. Esto es lo que hace que `VacunacionHubs` sea efectiva: los hubs concentran mucho poder de contagio.
-
-### Efecto small-world
-
-Aunque la mayoría de conexiones son locales (familia, vecindario), las conexiones de largo alcance (fase 4.5) reducen el diámetro de la red drásticamente. Esto significa que el virus puede llegar de cualquier nodo a cualquier otro en pocos pasos, lo cual hace que la velocidad de propagación importa tanto como la conectividad local.
-
-### Pesos heterogéneos
-
-Cada arista tiene su propia `probContagio` calibrada por los factores demográficos del nodo origen. Esto hace que el grafo tenga información epidemiológica real en sus aristas, que es lo que aprovechan específicamente `BFSPonderado` (usa los pesos directamente) e `Híbrida` (usa edad y estrato que los generaron).
-
-### Por qué estas propiedades hacen que las estrategias avanzadas superen a la aleatoria
-
-En una red **homogénea** (todos los nodos con el mismo grado y pesos iguales), no hay información que aprovechar: la aleatoria y las demás estrategias darían el mismo resultado. Pero en esta red:
-- Los hubs existen → Hubs y BFSPonderado los priorizan
-- Las comunidades existen → Betweenness y Comunidades las detectan
-- Los perfiles de riesgo varían → Híbrida los pondera
-
-La estructura de la red **contiene información**, y las estrategias avanzadas la extraen.
+En una red homogénea (todos los nodos con el mismo grado y pesos iguales), la aleatoria y las demás darían el mismo resultado. La estructura y los pesos de esta red **contienen información**, y cada estrategia la extrae de una forma diferente.
 
 ---
 
-## 7. Flujo completo del sistema
+## 7. Eventos epidemiológicos — cómo funcionan la Cuarentena, Lockdown y Alerta Leve
+
+### El concepto: intervenciones no farmacéuticas (NPI)
+
+En una epidemia real los gobiernos reaccionan cuando la cantidad de infectados supera ciertos umbrales: primero recomiendan medidas básicas, luego restringen la movilidad, y finalmente confinan a la población. Cada una de estas medidas reduce la probabilidad de que una persona contagie a otra.
+
+En el código esto se modela de forma directa: **cuando se supera un umbral, se multiplica el peso de TODAS las aristas del grafo por un factor reductor**. La red social "se encoje" dinámicamente, reflejando que la gente se aísla, usa tapabocas y evita lugares concurridos.
+
+### Los tres eventos del sistema
+
+| Evento | Clase | Umbral de infectados | Factor multiplicador | Reducción de contagio |
+|--------|-------|---------------------|----------------------|----------------------|
+| `ALERTA_LEVE` | `EventoEpidemiologico` | 30% de la población | × 0.80 | –20% |
+| `CUARENTENA` | `EventoEpidemiologico` | 50% de la población | × 0.50 | –50% |
+| `LOCKDOWN` | `EventoEpidemiologico` | 70% de la población | × 0.20 | –80% |
+
+Cada evento se dispara **exactamente una vez** por simulación. El flag `yaDisparado` dentro de `EventoEpidemiologico` garantiza que aunque el umbral siga superado en turnos posteriores, el evento no se vuelva a aplicar.
+
+### Cómo se evalúan en cada turno
+
+`GestorEventos.evaluar()` se llama una vez por turno, después de que `ModeloSIRV` ya propagó la infección:
+
+```
+Turno t:
+  1. ModeloSIRV.simularTurno(red)   → calcula nuevos infectados del turno t
+  2. GestorEventos.evaluar(red, t)  → revisa si algún umbral fue superado
+
+  Dentro de evaluar():
+    infectados = contarPersonasEnEstado(INFECTADO)
+    porcentaje = infectados / totalPersonas
+
+    Para cada evento (en orden ALERTA_LEVE → CUARENTENA → LOCKDOWN):
+      Si !evento.estaDisparado() && porcentaje >= evento.getUmbral():
+        → Para CADA arista del grafo: arista.aplicarFactor(evento.getFactorMultiplicador())
+        → evento.disparar()           ← lo marca como disparado, no se volverá a aplicar
+```
+
+### Los factores son acumulativos
+
+Si en la misma simulación se disparan los tres eventos, cada arista acumula los tres factores:
+
+```
+probContagio original de una arista = 0.50
+
+Turno 12 → ALERTA_LEVE  (30% infectados): 0.50 × 0.80 = 0.40
+Turno 18 → CUARENTENA   (50% infectados): 0.40 × 0.50 = 0.20
+Turno 24 → LOCKDOWN     (70% infectados): 0.20 × 0.20 = 0.04
+
+Resultado: la arista que originalmente tenía 50% de contagio por turno
+           ahora tiene apenas 4% — el contagio se redujo al 8% del original.
+```
+
+Matemáticamente: `prob_final = prob_original × 0.80 × 0.50 × 0.20 = prob_original × 0.08`
+
+### Dónde vive la modificación en el código
+
+La clave es que `Contacto` (arista) expone `aplicarFactor(double factor)`:
+
+```java
+// En Contacto.java
+public void aplicarFactor(double factor) {
+    setProbContagio(this.probContagio * factor);  // modifica in-place, clamp a [0.05, 0.95]
+}
+```
+
+Y `GestorEventos` itera sobre todas las aristas con `red.getTodosLosContactos()`, que recorre el `HashMap<Persona, List<Contacto>>` entero:
+
+```java
+for (Contacto c : red.getTodosLosContactos()) {
+    c.aplicarFactor(evento.getFactorMultiplicador());
+}
+```
+
+Esto significa que el grafo **muta sus pesos en tiempo de ejecución**: el mismo `ModeloSIRV` que en el turno 5 usaba `probContagio = 0.50` en una arista, en el turno 19 usará `probContagio = 0.20` en esa misma arista, sin ningún cambio en la lógica de propagación. Solo cambió el peso del grafo.
+
+### Efecto visible en la curva de infectados
+
+El resultado de estos eventos es el famoso "aplanar la curva":
+
+```
+Infectados
+    │
+ 70%┤                    ╭─── sin NPI: curva alta y rápida
+    │                   ╱
+ 50%┤               ───╱
+    │              ╱          ╭── con NPI: curva más baja y lenta
+ 30%┤     ALERTA  ╱   CUAREN ╱  LOCKDOWN
+    │         ╲  ╱      ╲   ╱      ╲
+    │          ▼         ▼          ▼
+    └──────────────────────────────────► Turno
+```
+
+Cada flecha es el momento en que un evento se dispara y reduce los pesos de todas las aristas.
+
+---
+
+## 8. Cómo se conecta el grafo — construcción visual paso a paso
+
+Esta sección muestra visualmente cómo la red pasa de un conjunto de nodos aislados a un grafo completamente conectado con estructura social real.
+
+### Estado inicial — N nodos aislados
+
+Al terminar la Fase 1, el grafo tiene N nodos sin ninguna arista:
+
+```
+P001   P002   P003   P004   P005   P006   P007   P008   P009   P010   P011   P012
+ ○      ○      ○      ○      ○      ○      ○      ○      ○      ○      ○      ○
+```
+
+---
+
+### Fase 2 — Clusters familiares (cliques de alta probabilidad)
+
+Los nodos se agrupan al azar en familias de 4–7 miembros. Dentro de cada familia **todos los pares se conectan bidireccionalmente** con `probBase` 0.30–0.40. El resultado es una **clique dirigida**: cada nodo tiene aristas hacia todos los demás del grupo.
+
+```
+  Familia 1 (estrato 2)         Familia 2 (estrato 1)         Familia 3 (estrato 3)
+  ┌──────────────────┐          ┌──────────────────┐          ┌──────────────────┐
+  │  P001 ←──→ P002  │          │  P005 ←──→ P006  │          │  P009 ←──→ P010  │
+  │   ↑ ╲     ╱ ↑   │          │   ↑ ╲     ╱ ↑   │          │   ↑ ╲     ╱ ↑   │
+  │   │  ╲   ╱  │   │          │   │  ╲   ╱  │   │          │   │  ╲   ╱  │   │
+  │  P003 ←──→ P004  │          │  P007 ←──→ P008  │          │  P011 ←──→ P012  │
+  └──────────────────┘          └──────────────────┘          └──────────────────┘
+  (aristas ~0.35, densas)       (aristas ~0.38, densas)       (aristas ~0.32, densas)
+```
+
+Estas cliques son los "núcleos" de contagio intra-familiar. El virus se propaga muy rápido dentro de una familia una vez que entra.
+
+---
+
+### Fase 3 — Vecindarios (puentes entre familias del mismo estrato)
+
+Las familias de estratos similares se conectan entre sí con aristas moderadas (0.10–0.18). No todos los miembros se conectan, solo 1–3 pares por vecindario. La probabilidad de conexión decrece con la distancia:
+
+```
+distancia 1 (familias adyacentes): 100% de conexión
+distancia 2:                         55% de conexión
+distancia 3:                         30% de conexión
+```
+
+Visualmente, después de la Fase 3:
+
+```
+  Familia 1 (estrato 2)         Familia 2 (estrato 2)         Familia 3 (estrato 3)
+  ┌──────────────────┐          ┌──────────────────┐          ┌──────────────────┐
+  │  P001 ←──→ P002  │          │  P005 ←──→ P006  │          │  P009 ←──→ P010  │
+  │   ↕ ╲     ╱ ↕   │          │   ↕ ╲     ╱ ↕   │          │   ↕ ╲     ╱ ↕   │
+  │  P003 ←──→ P004  │          │  P007 ←──→ P008  │          │  P011 ←──→ P012  │
+  └────────┬─────────┘          └──┬──────────┬────┘          └──────────────────┘
+           │                       │          │
+           └──── P001↔P007 ────────┘          └──── P006↔P011 (prob 55%, estrato diff≤2)
+                 (aristas ~0.14)
+```
+
+Estos puentes entre familias son los que detecta `VacunacionBetweenness`: P001 y P007 tienen betweenness alto porque son el camino por el que la Familia 1 puede llegar a la Familia 2.
+
+---
+
+### Fase 4 — Hubs comunitarios (nodos de grado muy alto)
+
+Se seleccionan 2–3 nodos al azar que pasan a ser "hubs". Cada hub se conecta con `N/10` personas de distintas familias y estratos, con `probBase` moderada (0.08–0.15):
+
+```
+Antes de Fase 4:
+  Fam1──Fam2    Fam3──Fam4    Fam5──Fam6    (grupos desconectados entre sí)
+
+Después de Fase 4 — Hub H1 conecta a todos:
+
+                        H1 (hub: mercado)
+                      / │ │ │ │ │ │ │ \
+                P001 P003 P006 P008 P010 P012 P014 P016 P018
+                (un miembro de cada familia, distintos estratos)
+
+  Resultado: H1 tiene grado ~N/10. Es el nodo que VacunacionHubs priorizaría.
+```
+
+---
+
+### Fase 4.5 — Conexiones de largo alcance (efecto small-world)
+
+Se agregan `N/15` aristas aleatorias entre nodos de cualquier parte de la red, con `probBase` baja (0.05–0.13). Estos son los "conocidos lejanos": compañeros de trabajo de otra ciudad, contactos de redes sociales digitales.
+
+```
+Antes (sin long-range):
+  Fam1 ─── Fam2 ─── Fam3 ─── Fam4 ─── Fam5 ─── Fam6
+  (para ir de Fam1 a Fam6 hay que pasar por todas)
+  Diámetro ≈ 5 saltos
+
+Después (con long-range):
+  Fam1 ─── Fam2 ─── Fam3 ─── Fam4 ─── Fam5 ─── Fam6
+   │                  │                  │
+   └──────── salto ───┘                  │
+             largo                       │
+             alcance ────────────────────┘
+
+  Diámetro ≈ 2–3 saltos (small-world)
+```
+
+Efecto clave: el virus puede llegar de cualquier comunidad a cualquier otra en muy pocos pasos, aunque la mayoría de contactos sean locales.
+
+---
+
+### Fase 5 — Garantizar conectividad
+
+Se hace un **BFS no dirigido** sobre el grafo completo para detectar componentes conexas (grupos de nodos que no tienen ningún camino entre sí):
+
+```
+BFS desde P001:
+  visita P001 → P002, P003 (familia 1)
+  visita P002 → P004, P007 (vecindario)
+  ...continúa hasta agotar todos los alcanzables
+
+Si quedan nodos no visitados → son un componente separado:
+  Componente principal: [P001...P089]
+  Componente huérfano:  [P090...P095]  ← nunca recibió ninguna arista
+
+  Solución: agregar arista bidireccional P090 ↔ P045 (prob 0.10–0.20)
+            Ahora P090 puede alcanzar a P001 en 2 pasos.
+```
+
+Esto garantiza que la epidemia pueda alcanzar en teoría a cualquier nodo desde cualquier otro.
+
+---
+
+### Estado final — red completa
+
+Después de las 5 fases, el grafo tiene la siguiente estructura en capas:
+
+```
+CAPA 1 — Aristas familiares (densas, prob 0.30–0.40):
+  Cliques de 4–7 nodos. Propagación rápida intra-familiar.
+
+CAPA 2 — Aristas vecinales (moderadas, prob 0.10–0.18):
+  Puentes entre familias del mismo estrato. Propagación lenta inter-familiar.
+  → Estos son los nodos de alto betweenness.
+
+CAPA 3 — Hubs comunitarios (cruzadas, prob 0.08–0.15):
+  Nodos de grado alto que conectan distintos clusters.
+  → Estos son los nodos que VacunacionHubs prioriza.
+
+CAPA 4 — Conexiones long-range (débiles, prob 0.05–0.13):
+  Puentes de largo alcance que reducen el diámetro de la red.
+  → Efecto small-world: pocos pasos entre cualquier par de nodos.
+```
+
+Esquema global del grafo final con 12 nodos de ejemplo:
+
+```
+    [Fam1: estrato 2]          [Fam2: estrato 2]
+    P001 ←──→ P002             P005 ←──→ P006
+       ↕╲    ╱↕     vecindario    ↕╲    ╱↕
+    P003 ←──→ P004 ←─────────→ P007 ←──→ P008
+                  ╲                         ╱
+                   ╲    Hub H1 (mercado)   ╱
+                    ╰──────── H1 ──────────╯
+                   ╱                         ╲
+    P009 ←──→ P010 ←─────────→ P011 ←──→ P012
+       ↕╲    ╱↕     vecindario    ↕╲    ╱↕
+    P011 ←──→ P012             P013 ←──→ P014
+    [Fam3: estrato 3]          [Fam4: estrato 3]
+
+    P001 ←────── long-range ──────────────→ P013
+    (arista débil, simula conocido lejano)
+```
+
+### Propiedades emergentes de esta construcción
+
+| Propiedad | Por qué aparece | Qué algoritmo la aprovecha |
+|-----------|-----------------|---------------------------|
+| Comunidades densas | Fases 2 y 3 | `VacunacionComunidades` (densidad interna) |
+| Nodos puente | Fase 3 (pocas aristas inter-familia) | `VacunacionBetweenness` |
+| Hubs de grado alto | Fase 4 | `VacunacionHubs`, `VacunacionBFSPonderado` |
+| Diámetro pequeño | Fase 4.5 | Explica por qué el virus llega rápido a toda la red |
+| Grafo conexo | Fase 5 | Sin esto, algunos nodos nunca se infectarían |
+
+---
+
+## 9. Flujo completo del sistema
 
 ```
 GeneradorPoblacion.generar(N, semilla)
@@ -532,16 +782,16 @@ GeneradorPoblacion.generar(N, semilla)
 RedSocial — grafo dirigido ponderado
     ↓
 VacunacionService.aplicar(estrategia)
-    │   ├── ALEATORIA    → VacunacionAleatoria.vacunar(red)
-    │   ├── HUBS         → VacunacionHubs.vacunar(red)
-    │   ├── BETWEENNESS  → VacunacionBetweenness.vacunar(red)
-    │   ├── COMUNIDADES  → VacunacionComunidades.vacunar(red)
+    │   ├── ALEATORIA     → VacunacionAleatoria.vacunar(red)
+    │   ├── HUBS          → VacunacionHubs.vacunar(red)
+    │   ├── BETWEENNESS   → VacunacionBetweenness.vacunar(red)
+    │   ├── COMUNIDADES   → VacunacionComunidades.vacunar(red)
     │   ├── BFS_PONDERADO → VacunacionBFSPonderado.vacunar(red)
-    │   └── HIBRIDA      → VacunacionHibrida.vacunar(red)
+    │   └── HIBRIDA       → VacunacionHibrida.vacunar(red)
     ↓
   [20% de susceptibles pasan a VACUNADO]
     ↓
-IniciarSimulacionCommand / SimulacionService
+SimulacionService.ejecutar(red, config, grafico)
     │
     ├── red.setearPacienteCero(cantidad, random)  → infecta N nodos iniciales
     │
@@ -549,7 +799,7 @@ IniciarSimulacionCommand / SimulacionService
           ├── ModeloSIRV.simularTurno(red)
           │     ├── Recolectar nuevosInfectados (aristas INFECTADO→SUSCEPTIBLE)
           │     ├── Recolectar nuevosRecuperados (diasInfectado >= diasRecuperacion)
-          │     └── Aplicar cambios de estado (sincronía)
+          │     └── Aplicar cambios de estado (sincronía — todos al final)
           │
           ├── GestorEventos.evaluar(red, turno)
           │     └── Si % infectados supera umbral: aplicarFactor en TODAS las aristas
