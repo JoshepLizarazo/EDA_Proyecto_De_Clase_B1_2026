@@ -59,7 +59,7 @@ public class ConsolaMenu {
     // ── Flujos de ejecución ───────────────────────────────────────────────────
 
     private void ejecutarIndividual() {
-        ConfiguracionDto config = solicitarConfiguracion();
+        ConfiguracionDto config = solicitarConfiguracion(true);
         IniciarSimulacionCommand cmd = new IniciarSimulacionCommand(config.getSemillaAleatoria());
 
         GraficoSimulacion grafico = null;
@@ -74,7 +74,7 @@ public class ConsolaMenu {
     }
 
     private void ejecutarComparativo() {
-        ConfiguracionDto config = solicitarConfiguracion();
+        ConfiguracionDto config = solicitarConfiguracion(false);
         IniciarSimulacionCommand cmd = new IniciarSimulacionCommand(config.getSemillaAleatoria());
 
         System.out.println("\nEjecutando 6 estrategias, por favor espere...");
@@ -116,7 +116,7 @@ public class ConsolaMenu {
 
     // ── Solicitud de configuración al usuario ─────────────────────────────────
 
-    private ConfiguracionDto solicitarConfiguracion() {
+    private ConfiguracionDto solicitarConfiguracion(boolean pedirEstrategia) {
         ConfiguracionDto cfg = new ConfiguracionDto();
 
         System.out.println("\n── Configuración de la simulación ──");
@@ -132,13 +132,17 @@ public class ConsolaMenu {
             default -> cfg.setTamanoRed(80);
         }
 
-        System.out.println("\nEstrategia de vacunación:");
-        System.out.println("  1. Aleatoria   2. Hubs   3. Betweenness");
-        System.out.println("  4. Comunidades 5. Híbrida   6. BFS Ponderado");
-        System.out.print("Opción [1]: ");
-        EstrategiaVacunacion[] estrategias = EstrategiaVacunacion.values();
-        int idx = Math.max(0, Math.min(estrategias.length - 1, leerIntDefault(1) - 1));
-        cfg.setEstrategia(estrategias[idx]);
+        if (pedirEstrategia) {
+            System.out.println("\nEstrategia de vacunación:");
+            System.out.println("  1. Aleatoria   2. Hubs   3. Betweenness");
+            System.out.println("  4. Comunidades 5. Híbrida   6. BFS Ponderado");
+            System.out.print("Opción [1]: ");
+            EstrategiaVacunacion[] estrategias = EstrategiaVacunacion.values();
+            int idx = Math.max(0, Math.min(estrategias.length - 1, leerIntDefault(1) - 1));
+            cfg.setEstrategia(estrategias[idx]);
+        } else {
+            System.out.println("\n  (Modo comparativo: se ejecutarán las 6 estrategias automáticamente)");
+        }
 
         System.out.print("\nTurnos máximos [60]: ");
         cfg.setTurnosMaximos(Math.max(1, leerIntDefault(60)));

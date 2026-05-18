@@ -59,6 +59,7 @@ public class GraficoSimulacion {
     private Graph graph;
     private Viewer viewer;
     private boolean activo = false;
+    private int totalNodos = 0;
 
     /**
      * Inicializa la ventana standalone y dibuja el grafo inicial.
@@ -87,7 +88,8 @@ public class GraficoSimulacion {
             System.setProperty("org.graphstream.ui", "swing");
             construirGrafo(red);
             viewer = new SwingViewer(graph, SwingViewer.ThreadingModel.GRAPH_IN_GUI_THREAD);
-            viewer.enableAutoLayout();
+            // Auto-layout es O(n²) — solo activarlo en redes pequeñas
+            if (totalNodos <= 100) viewer.enableAutoLayout();
             ViewPanel view = (ViewPanel) viewer.addDefaultView(false);
             activo = true;
             return view;
@@ -104,32 +106,47 @@ public class GraficoSimulacion {
         graph.setAttribute("ui.stylesheet", CSS);
         graph.setAttribute("ui.quality");
         graph.setAttribute("ui.antialias");
-        graph.setAttribute("layout.force", 2.2);
-        graph.setAttribute("layout.quality", 4);
 
-        // Crear nodos pre-posicionados en círculo (evita NonInvertibleTransformException)
         java.util.List<Persona> lista = new java.util.ArrayList<>(red.getTodasLasPersonas());
         int total = lista.size();
-        double radio = total * 3.0;
+        totalNodos = total;
+        boolean esGrande = total > 100;
+
+        if (!esGrande) {
+            graph.setAttribute("layout.force", 0.8);
+            graph.setAttribute("layout.quality", 2);
+        }
+
+        // Radio proporcional a √n para que la densidad visual sea constante
+        double radio = Math.max(20, Math.sqrt(total) * 8);
+        int tamBase   = esGrande ? 5 : 8;
+        int tamMax    = esGrande ? 18 : 40;
         for (int i = 0; i < total; i++) {
             Persona p = lista.get(i);
             Node n = graph.addNode(p.getId());
-            n.setAttribute("ui.label", p.getId());
+            if (!esGrande) n.setAttribute("ui.label", p.getId());
             n.setAttribute("ui.style", estiloNodo(p.getEstado()));
-            n.setAttribute("ui.size", 8 + red.getGrado(p) * 2);
+            n.setAttribute("ui.size", Math.min(tamMax, tamBase + red.getGrado(p)));
             double angle = 2 * Math.PI * i / total;
             n.setAttribute("xyz", radio * Math.cos(angle), radio * Math.sin(angle), 0);
         }
 
-        // Crear aristas
+        // Para redes grandes solo dibujar conexiones fuertes (familia y hubs).
+        // El umbral 0.15 retiene ~familias (0.30-0.40) y hubs relevantes, eliminando
+        // el ruido visual de conexiones de largo alcance débiles.
+        double umbralArista = esGrande ? 0.15 : 0.0;
+        int alphaArista     = esGrande ? 90 : 160;
+
         for (Contacto c : red.getTodosLosContactos()) {
+            if (c.getProbContagio() < umbralArista) continue;
             String edgeId = c.getOrigen().getId() + "_" + c.getDestino().getId();
             if (graph.getEdge(edgeId) == null) {
                 try {
                     org.graphstream.graph.Edge e = graph.addEdge(
                             edgeId, c.getOrigen().getId(), c.getDestino().getId(), true);
                     int grosor = Math.max(1, (int) (c.getProbContagio() * 4));
-                    e.setAttribute("ui.style", "size: " + grosor + "px;");
+                    e.setAttribute("ui.style",
+                            "size: " + grosor + "px; fill-color: rgba(120,120,120," + alphaArista + ");");
                 } catch (Exception ignored) { /* arista duplicada */ }
             }
         }
@@ -154,13 +171,16 @@ public class GraficoSimulacion {
      */
     public void notificarCambioAristas(RedSocial red) {
         if (!activo || graph == null) return;
+        boolean esGrande = totalNodos > 100;
+        int alphaArista  = esGrande ? 90 : 160;
         try {
             for (Contacto c : red.getTodosLosContactos()) {
                 String edgeId = c.getOrigen().getId() + "_" + c.getDestino().getId();
                 org.graphstream.graph.Edge e = graph.getEdge(edgeId);
                 if (e != null) {
                     int grosor = Math.max(1, (int) (c.getProbContagio() * 4));
-                    e.setAttribute("ui.style", "size: " + grosor + "px;");
+                    e.setAttribute("ui.style",
+                            "size: " + grosor + "px; fill-color: rgba(120,120,120," + alphaArista + ");");
                 }
             }
         } catch (Exception ignored) {}

@@ -16,14 +16,45 @@ import java.util.Set;
 /**
  * Implementa la propagación de la epidemia turno a turno (modelo SIRV discreto).
  *
- * Orden de operaciones por turno (sincrónico — evita que un nodo recién
- * infectado pueda contagiar en el mismo turno que fue infectado):
+ * Modelo SIRV — estados posibles de cada nodo:
+ *   S (Susceptible) → puede infectarse si tiene contacto con un infectado.
+ *   I (Infectado)   → puede contagiar a vecinos susceptibles en cada turno.
+ *   R (Recuperado)  → inmune tras superar la infección; ya no contagia ni se infecta.
+ *   V (Vacunado)    → inmune antes de la epidemia; no participa en la propagación.
+ *
+ * Parámetros del modelo:
+ *   - diasRecuperacion: cuántos turnos permanece en estado I un nodo antes de pasar a R.
+ *   - probContagio (por arista): no hay un β global. Cada arista tiene su propia
+ *     probabilidad calibrada por edad, estrato y ocupación del nodo origen.
+ *     Ver GeneradorPoblacion.calcularProbContagio() para la fórmula.
+ *
+ * Ejecución sincrónica (por lotes):
+ *   Los cambios de estado se aplican TODOS al final del turno, no nodo a nodo.
+ *   Esto evita el efecto "cascade": sin sincronía, un nodo infectado en el turno t
+ *   podría contagiar a sus vecinos en el mismo turno t dependiendo del orden de
+ *   iteración, lo que haría el resultado no determinista dado el mismo orden inicial.
+ *
+ * Orden de operaciones por turno:
  *   1. Recolectar nuevosInfectados: por cada INFECTADO y cada vecino SUSCEPTIBLE,
- *      lanzar r ∈ [0,1); si r < probContagio → añadir vecino al set.
+ *      lanzar r ∈ [0,1); si r < probContagio(arista) → añadir vecino al set.
+ *      Se usa Set para que un susceptible con múltiples vecinos infectados
+ *      solo se infecte una vez por turno.
  *   2. Recolectar nuevosRecuperados: incrementar diasInfectado de cada INFECTADO;
- *      si diasInfectado >= diasRecuperacion → añadir a la lista.
- *   3. Aplicar cambios de estado (fuera del recorrido principal).
+ *      si diasInfectado >= diasRecuperacion → pasar a RECUPERADO.
+ *   3. Aplicar cambios de estado (fuera del recorrido anterior — sincronía).
  *   4. Contar y retornar {S, I, R, V}.
+ *
+ * Condición de parada (gestionada externamente):
+ *   La simulación termina cuando I = 0 (sin infectados) o se alcanza el máximo de
+ *   turnos configurado. ModeloSIRV solo ejecuta UN turno; el ciclo lo controla
+ *   IniciarSimulacionCommand, que llama simularTurno() en cada iteración.
+ *
+ * Reproducibilidad:
+ *   La semilla del Random está fijada en ConfiguracionDto, por lo que dos
+ *   simulaciones con los mismos parámetros producen exactamente el mismo resultado.
+ *
+ * @see IniciarSimulacionCommand que orquesta los turnos y detecta la condición de parada
+ * @see GeneradorPoblacion que calibra probContagio de cada arista al construir la red
  */
 public class ModeloSIRV {
 

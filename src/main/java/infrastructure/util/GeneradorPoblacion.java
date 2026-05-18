@@ -59,6 +59,9 @@ public class GeneradorPoblacion {
         // Fase 4: hubs comunitarios (mercado, iglesia, transporte)
         crearHubsComunitarios(personas, red, rand);
 
+        // Fase 4.5: conexiones de largo alcance (efecto small-world)
+        conectarConocidosLejanos(personas, red, rand);
+
         // Fase 5: garantizar un único componente conexo
         garantizarConectividad(personas, red, rand);
 
@@ -160,26 +163,54 @@ public class GeneradorPoblacion {
 
     /**
      * Agrupa familias por estrato similar y las conecta moderadamente (0.10–0.18).
-     * Simula el contacto vecinal dentro del mismo barrio.
+     * Conecta familias a distancia 1, 2 o 3 (con probabilidad decreciente) para
+     * generar una red con múltiples puentes inter-comunitarios.
      */
     private void conectarVecindarios(List<List<Persona>> familias, RedSocial red, Random rand) {
-        for (int i = 0; i < familias.size() - 1; i++) {
-            List<Persona> fa = familias.get(i);
-            List<Persona> fb = familias.get(i + 1);
-            int estratoA = fa.get(0).getEstrato();
-            int estratoB = fb.get(0).getEstrato();
+        int n = familias.size();
+        for (int i = 0; i < n; i++) {
+            // Conectar con hasta 3 familias hacia adelante (distancias 1, 2, 3)
+            for (int offset = 1; offset <= 3; offset++) {
+                int j = i + offset;
+                if (j >= n) break;
+                // Probabilidad de conexión: 100% para adyacentes, 55% para dist 2, 30% para dist 3
+                double probConexion = offset == 1 ? 1.0 : (offset == 2 ? 0.55 : 0.30);
+                if (rand.nextDouble() > probConexion) continue;
 
-            // Solo conectar si los estratos son similares (diferencia ≤ 1)
-            if (Math.abs(estratoA - estratoB) > 1) continue;
+                List<Persona> fa = familias.get(i);
+                List<Persona> fb = familias.get(j);
+                int estratoA = fa.get(0).getEstrato();
+                int estratoB = fb.get(0).getEstrato();
 
-            double probBase = 0.10 + rand.nextDouble() * 0.08; // 0.10 – 0.18
-            int conexiones = 1 + rand.nextInt(Math.min(3, Math.min(fa.size(), fb.size())));
-            for (int k = 0; k < conexiones; k++) {
-                Persona u = fa.get(rand.nextInt(fa.size()));
-                Persona v = fb.get(rand.nextInt(fb.size()));
-                red.agregarContacto(u, v, calcularProbContagio(u, probBase));
-                red.agregarContacto(v, u, calcularProbContagio(v, probBase));
+                // Relajar la restricción de estrato a medida que aumenta la distancia
+                int maxDiffEstrato = (offset == 1) ? 1 : 2;
+                if (Math.abs(estratoA - estratoB) > maxDiffEstrato) continue;
+
+                double probBase = 0.10 + rand.nextDouble() * 0.08;
+                int conexiones = 1 + rand.nextInt(Math.min(3, Math.min(fa.size(), fb.size())));
+                for (int k = 0; k < conexiones; k++) {
+                    Persona u = fa.get(rand.nextInt(fa.size()));
+                    Persona v = fb.get(rand.nextInt(fb.size()));
+                    red.agregarContacto(u, v, calcularProbContagio(u, probBase));
+                    red.agregarContacto(v, u, calcularProbContagio(v, probBase));
+                }
             }
+        }
+    }
+
+    /**
+     * Agrega conexiones de largo alcance (estilo small-world) entre nodos
+     * de comunidades lejanas. Simula conocidos, trabajo, redes sociales digitales.
+     */
+    private void conectarConocidosLejanos(List<Persona> personas, RedSocial red, Random rand) {
+        int conexionesLargas = Math.max(8, personas.size() / 15);
+        for (int i = 0; i < conexionesLargas; i++) {
+            Persona u = personas.get(rand.nextInt(personas.size()));
+            Persona v = personas.get(rand.nextInt(personas.size()));
+            if (u.equals(v)) continue;
+            double probBase = 0.05 + rand.nextDouble() * 0.08;
+            red.agregarContacto(u, v, calcularProbContagio(u, probBase));
+            red.agregarContacto(v, u, calcularProbContagio(v, probBase));
         }
     }
 
