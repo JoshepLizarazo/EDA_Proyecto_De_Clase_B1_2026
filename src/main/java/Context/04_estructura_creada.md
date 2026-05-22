@@ -1,6 +1,6 @@
 # Estructura del Proyecto — Cambios Aplicados
 
-**Última actualización:** 2026-05-17
+**Última actualización:** 2026-05-22
 
 ---
 
@@ -14,6 +14,7 @@
 | v4 | 2026-05-16 | Nueva estrategia `VacunacionComunidades` implementada. `EstrategiaVacunacion` y `VacunacionService` actualizados. |
 | v5 | 2026-05-17 | Simplificación del modelo (sin nombre, sin semilla manual) + 6ª estrategia BFS Ponderado + reporte PDF con gráficos JFreeChart + análisis cuantitativo del ganador + mejora visual GraphStream. Ver detalle abajo. |
 | v6 | 2026-05-17 | Reversión del estilo visual de GraphStream a la versión previa (la nueva versión introducía bugs con la leyenda flotante y el título dinámico). Nuevo flujo del comparativo con `JTabbedPane` de 6 pestañas (una por estrategia). Modo individual ya no ofrece exportar PDF. Ver detalle abajo. |
+| v7 | 2026-05-22 | Interfaz gráfica Swing completa con FlatDarkLaf — 4 ventanas nuevas que reemplazan al menú por consola como modo por defecto. Refinamiento visual integral del `GeneradorReportePDF` (paleta unificada, hero banner, tabla zebra con ganador destacado, score apilado). La consola sigue disponible vía `--consola` o headless. Ver detalle abajo. |
 
 ---
 
@@ -21,6 +22,7 @@
 
 ```
 src/main/java/
+├── Context/                       (documentación viva del proyecto, sin código)
 ├── domain/
 │   ├── model/        → package domain.model
 │   ├── value/        → package domain.value
@@ -30,9 +32,10 @@ src/main/java/
 │   ├── dto/          → package application.dto
 │   └── command/      → package application.command
 ├── presentation/     → package presentation
-└── infrastructure/
-    ├── persistence/  → package infrastructure.persistence
-    └── util/         → package infrastructure.util
+├── infrastructure/
+│   ├── persistence/  → package infrastructure.persistence
+│   └── util/         → package infrastructure.util
+└── _smoketest/       → package _smoketest          (temporal, eliminable)
 ```
 
 ---
@@ -597,3 +600,221 @@ entre pestañas es qué nodos están vacunados y cómo evolucionó la epidemia.
   compuesto rankea, el reporte PDF se sigue exportando si se solicita.
 - La ventana de tabs solo se crea cuando el usuario activa visualización; en
   headless no se intenta abrir Swing.
+
+---
+
+## v7 — Interfaz Swing + refinamiento visual del PDF (2026-05-22)
+
+Hasta v6 el flujo de uso era 100% por consola: el usuario corría
+`mvn exec:java`, navegaba por menús de texto, y la única ventana gráfica era el
+grafo de GraphStream. En v7 esa fricción desaparece: el programa abre una
+**interfaz Swing oscura y moderna** (FlatDarkLaf) con tres ventanas — menú
+principal, configuración y resultados — y la consola queda como fallback para
+entornos sin GUI o usuarios que prefieren CLI. En paralelo, el reporte PDF
+recibió una refacción visual completa: paleta consistente, hero banner,
+tabla zebra con ganador destacado, leyenda de colores en barras, y desglose
+del score apilado.
+
+### 1. Nueva dependencia — FlatLaf 3.5.4
+
+```xml
+<dependency>
+    <groupId>com.formdev</groupId>
+    <artifactId>flatlaf</artifactId>
+    <version>3.5.4</version>
+</dependency>
+```
+
+Se eligió FlatDarkLaf porque:
+- API simple — un único `FlatDarkLaf.setup()` antes de instanciar Swing.
+- Estética alineada con NetBeans/IntelliJ — familiar para el evaluador.
+- Permite personalizar `arc` (esquinas redondeadas) por componente vía
+  `UIManager.put`.
+
+`Main.java` activa FlatDarkLaf y configura los `arc` antes de crear ningún
+componente:
+
+```java
+com.formdev.flatlaf.FlatDarkLaf.setup();
+UIManager.put("Button.arc", 12);
+UIManager.put("Component.arc", 12);
+UIManager.put("ProgressBar.arc", 12);
+UIManager.put("TextComponent.arc", 8);
+UIManager.put("ScrollBar.thumbArc", 999);
+```
+
+### 2. Nuevo flujo de arranque en `Main.java`
+
+```
+java -jar EpidemiaSimulador.jar               → abre VentanaMenuPrincipal (Swing)
+java -jar EpidemiaSimulador.jar --consola     → fuerza ConsolaMenu (texto)
+java -jar ... (entorno headless)              → cae automáticamente a ConsolaMenu
+```
+
+La detección headless es nativa (`GraphicsEnvironment.isHeadless()`), por lo que
+servidores y CI siguen funcionando sin cambios.
+
+### 3. Cuatro ventanas Swing nuevas en `presentation/`
+
+#### `VentanaMenuPrincipal.java`
+- Ventana raíz. Hereda de `JFrame`, `EXIT_ON_CLOSE`.
+- **Banner azul** con título, universidad y curso.
+- **JRadioButton** para elegir modo (individual / comparativo).
+- Botones **Continuar** (default, énfasis FlatLaf) y **Salir**.
+- Al pulsar Continuar abre `VentanaConfiguracion` modal; si el usuario
+  confirma, lanza la simulación en un `SwingWorker` para no bloquear la UI.
+
+#### `VentanaConfiguracion.java` (modal)
+- Reemplaza al método `solicitarConfiguracion()` de `ConsolaMenu`.
+- Formulario con `GridBagLayout`:
+  - `JComboBox` para el tamaño de red (pequeña / grande / personalizado).
+  - `JTextField` para N personas (solo si "personalizado").
+  - `JComboBox<EstrategiaVacunacion>` (solo en modo individual; en
+    comparativo se sustituye por un label explicativo).
+  - `JSpinner` para turnos máximos y días de recuperación.
+  - `JCheckBox` "Mostrar visualización GraphStream" (default activo).
+  - `JCheckBox` "Cargar red desde archivos CSV".
+- Botones Cancelar / **Ejecutar ▶** (default).
+- Construye un `ConfiguracionDto` y lo expone vía `getConfiguracion()`
+  (devuelve `null` si el usuario canceló).
+
+#### `VentanaResultados.java`
+- Ventana de salida. Reemplaza al panel ASCII de `PanelEstadisticas` y a la
+  oferta de exportación de `ConsolaMenu`.
+- **JTabbedPane** con dos pestañas:
+  - **"Tabla y ranking"** — `JSplitPane` vertical con un `JTable`
+    (métricas por estrategia, fila ganadora resaltada con `RendererGanador`) y
+    un `JTextArea` monoespaciado (ranking con score compuesto + justificación).
+  - **"Curva I(t)"** — `ChartPanel` de JFreeChart con la curva de infectados
+    por estrategia, repintado en paleta dark para integrarse con FlatLaf.
+- Botones inferiores: **Exportar TXT**, **Exportar PDF** (solo en comparativo),
+  **Cerrar**. Usan `JFileChooser` con extensión sugerida y filtro de archivo.
+
+#### `DialogoProgreso.java`
+- `JDialog` modal con barra `JProgressBar` indeterminada.
+- Se muestra mientras el `SwingWorker` ejecuta la simulación en background, de
+  modo que la ventana principal no aparezca congelada.
+
+### 4. Refacción visual integral de `GeneradorReportePDF`
+
+El PDF recibió una pasada de diseño completa. Sigue siendo light theme
+(porque un PDF debe leerse en papel/pantalla clara), pero ahora con paleta
+unificada y elementos visuales consistentes.
+
+**Paleta nueva** (constantes `private static final` en la clase):
+
+| Constante | Hex | Uso |
+|---|---|---|
+| `COLOR_ACENTO` | `#2c5fa6` | Azul corporativo: banner hero, cabecera tabla |
+| `COLOR_TITULO` | `#111827` | Texto de títulos H1/H2 |
+| `COLOR_BODY` | `#374151` | Texto de cuerpo y celdas |
+| `COLOR_SUAVE` | `#6b7280` | Texto secundario (labels, etiquetas de eje) |
+| `COLOR_GRID` | `#e5e7eb` | Líneas de cuadrícula en gráficos |
+| `COLOR_FONDO` | `#fafbfc` | Fondo del plot de cada gráfico |
+| `COLOR_AXIS` | `#d1d5db` | Líneas de ejes |
+| `COLOR_GANA_BG` | `#dcfce7` | Fondo verde claro de la fila ganadora |
+| `COLOR_GANA_TXT` | `#166534` | Texto verde oscuro de la fila ganadora |
+| `COLOR_ZEBRA` | `#f6f7f9` | Fondo alternativo (filas impares) |
+| `PALETA[6]` | varios | Color por estrategia, también en la UI Swing futura |
+
+**Mejoras visuales clave:**
+
+1. **Hero banner en la portada** — bloque azul con título blanco y subtítulo
+   universidad, en lugar del título plano anterior. Bajo el hero, una tabla
+   2-col (`Generado` / `Tamaño de red` / `Estrategias evaluadas`) con
+   tipografía en mayúsculas y color suave para las etiquetas.
+2. **Tabla resumen** — primera columna es un pequeño **cuadrito de color por
+   estrategia** (mismo color que la PALETA, reutilizable en barras y curvas).
+   Filas alternadas con `COLOR_ZEBRA`, fila del ganador con fondo verde claro
+   y prefijo `*`. Cabecera con fondo azul corporativo y texto blanco.
+3. **Veredicto cuantitativo** — el ganador aparece como un párrafo verde
+   destacado con el score `X.YYY / 1.000`, seguido de la justificación
+   narrativa generada por `AnalisisComparativo.justificarGanador`.
+4. **Curva I(t) comparativa** — XY chart con renderer que aplica `PALETA[i]`
+   por serie. Trazos de 2.2pt, sin marcadores. Cuadrícula sutil en
+   `COLOR_GRID`, ejes en `COLOR_AXIS`. Leyenda inferior sin borde.
+5. **Curvas SIRV por estrategia** — un mini-chart por estrategia (520×210)
+   con paleta fija por estado (S azul, I rojo, R verde, V naranja) en lugar
+   de los colores aleatorios anteriores.
+6. **Barras de métricas** — 5 charts (pico, duración, afectados, contención,
+   R0), cada uno con `BarRenderer` que pinta cada barra con el color de su
+   estrategia (mismo `PALETA[i]`). Encima de la serie de barras se imprime
+   una leyenda horizontal con un cuadrito de color por estrategia, para que
+   el lector identifique las barras sin tener que mirar el eje X.
+7. **Etiquetas sobre las barras** — `StandardCategoryItemLabelGenerator` con
+   `ItemLabelAnchor.OUTSIDE12` muestra el valor numérico encima de cada barra.
+8. **Desglose del score** — stacked bar chart 520×340 donde cada estrategia
+   aparece como una barra apilada y cada componente del score (`Pico`,
+   `Duración`, `Afectados`, `Contención`, `R0`) ocupa un tramo de color
+   distinto. La leyenda explica la fórmula y los pesos antes del gráfico.
+
+**Mantras de estilo aplicados a todos los charts:**
+- `chart.setBorderVisible(false)` + `setPadding(8,4,4,4)`.
+- `plot.setBackgroundPaint(COLOR_FONDO)`, `plot.setOutlineVisible(false)`.
+- Sin sombras de barras (`shadowVisible=false`, `barPainter=Standard`).
+- `setMaximumBarWidth(0.13)` en simples, `0.10` en apiladas — evita barras
+  gigantes con pocas categorías.
+- Categorías rotadas 45° (`CategoryLabelPositions.DOWN_45`) para que los
+  nombres largos como `BFS_PONDERADO` no se solapen.
+
+### 5. Cambios menores en el flujo
+
+- `IniciarSimulacionCommand` se invoca igual desde Swing que desde consola; no
+  hubo que cambiarlo. `VentanaMenuPrincipal` lo envuelve en un `SwingWorker`.
+- `ConsolaMenu` sigue intacto — el comparativo desde consola sigue ofreciendo
+  exportación a TXT/PDF. Es el path de fallback cuando Swing no está disponible.
+- `Main.java` reemplaza la antigua llamada directa `new ConsolaMenu().iniciar()`
+  por una rama que decide entre Swing y consola.
+
+### 6. Smoke test temporal — `_smoketest/PdfSmoke.java`
+
+Se añadió un main rápido fuera del flujo de producción para validar que
+`GeneradorReportePDF` no rompa en runtime tras los cambios visuales. Genera
+6 series sintéticas con curvas gaussianas y exporta `smoke_reporte.pdf`.
+
+> **TODO de limpieza:** eliminar el paquete `_smoketest/` antes de la entrega
+> final. El javadoc del archivo ya lo señala.
+
+### 7. Archivos creados / modificados en v7
+
+#### Modificados
+- `pom.xml` (nueva dependencia FlatLaf 3.5.4)
+- `src/main/java/Context/02_planificacion_tecnica.md` (estructura completa
+  actualizada con los archivos Swing y dependencias)
+- `src/main/java/Context/04_estructura_creada.md` (este archivo)
+- `src/main/java/presentation/Main.java` (arranque Swing por defecto)
+- `src/main/java/infrastructure/persistence/GeneradorReportePDF.java`
+  (refacción visual integral — ~340 líneas modificadas)
+
+#### Creados
+- `src/main/java/presentation/VentanaMenuPrincipal.java`
+- `src/main/java/presentation/VentanaConfiguracion.java`
+- `src/main/java/presentation/VentanaResultados.java`
+- `src/main/java/presentation/DialogoProgreso.java`
+- `src/main/java/_smoketest/PdfSmoke.java` (temporal, eliminable)
+
+### 8. Pruebas realizadas
+- `mvn compile`: sin errores con la nueva dependencia FlatLaf.
+- Lanzamiento gráfico: el menú principal abre con FlatDarkLaf, el flujo
+  individual y comparativo encadena correctamente las tres ventanas
+  (Menú → Configuración → Resultados).
+- Modo headless (`java.awt.headless=true`): cae a `ConsolaMenu` sin errores.
+- Flag `--consola`: fuerza el menú de texto incluso con GUI disponible.
+- Smoke test (`PdfSmoke`): genera un PDF de ~180 KB con las 6 series
+  sintéticas; todas las páginas y gráficos se renderizan.
+
+### 9. Revisión del PDF — estado y observaciones
+
+Tras la refacción, el PDF cumple los criterios de un reporte profesional:
+portada, tabla comparativa, veredicto, gráficos vectoriales y desglose. La
+revisión visual no encontró bugs de renderizado. Observaciones menores que
+**no bloquean** pero podrían pulirse:
+
+- La leyenda horizontal de barras usa `2N` columnas (cuadro + texto por
+  estrategia). Con N=6, cada par tiene ~87px de ancho en el bloque de 520px,
+  suficiente para los nombres actuales pero ajustado si en el futuro se
+  añaden estrategias con nombres más largos.
+- El asterisco `*` se usa en lugar de `★` Unicode para marcar al ganador,
+  porque la fuente Helvetica embebida en OpenPDF no garantiza todos los
+  glifos de iconos. Decisión intencional, no es un bug.
+- `_smoketest/PdfSmoke.java` debe eliminarse antes de la entrega final.
