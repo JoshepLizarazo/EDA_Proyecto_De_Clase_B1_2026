@@ -1,3 +1,4 @@
+/home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/_smoketest/PdfSmoke.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/application/command/AplicarVacunacionCommand.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/application/command/IniciarSimulacionCommand.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/application/dto/ConfiguracionDto.java
@@ -28,7 +29,11 @@
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/infrastructure/util/CalculadorEstadisticas.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/infrastructure/util/GeneradorPoblacion.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/ConsolaMenu.java
+/home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/DialogoProgreso.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/GraficoSimulacion.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/Main.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/PanelEstadisticas.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/VentanaComparativaTabs.java
+/home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/VentanaConfiguracion.java
+/home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/VentanaMenuPrincipal.java
+/home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/VentanaResultados.java

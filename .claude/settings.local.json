@@ -18,7 +18,9 @@
       "Read(//tmp/**)",
       "Bash(javac --release 17 src/main/java/domain/value/EstadoSIRV.java -d /tmp/)",
       "Bash(timeout 90 mvn -q -DskipTests exec:java -Djava.awt.headless=true)",
-      "Bash(mvn -q -DskipTests compile)"
+      "Bash(mvn -q -DskipTests compile)",
+      "Bash(timeout 5 mvn -q exec:java)",
+      "Bash(timeout 6 mvn -q exec:java)"
     ]
   }
 }

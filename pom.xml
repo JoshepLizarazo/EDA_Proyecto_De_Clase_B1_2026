@@ -41,6 +41,13 @@
             <artifactId>openpdf</artifactId>
             <version>1.3.34</version>
         </dependency>
+
+        <!-- FlatLaf: Look-and-Feel moderno para la UI Swing -->
+        <dependency>
+            <groupId>com.formdev</groupId>
+            <artifactId>flatlaf</artifactId>
+            <version>3.5.4</version>
+        </dependency>
     </dependencies>
 
     <build>
