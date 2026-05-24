@@ -194,6 +194,12 @@ Esta es una de las partes más interesantes del modelo: **el grafo muta en tiemp
 
 Todas las estrategias vacunan exactamente el **20% de los nodos susceptibles** antes de que inicie el brote. La diferencia entre ellas es **qué nodos eligen** para vacunar, y eso depende de qué información del grafo usan.
 
+> **Comparación justa (v8).** El paciente cero (15% de la población) se fija
+> **antes** de vacunar y es idéntico para las seis estrategias (misma red + misma
+> semilla). Por eso la vacunación opera sobre los susceptibles restantes y nunca
+> recae sobre un nodo ya infectado: las seis estrategias arrancan exactamente del
+> mismo estado inicial.
+
 ---
 
 ### 4.1 Vacunación Aleatoria — `VacunacionAleatoria`
@@ -781,7 +787,11 @@ GeneradorPoblacion.generar(N, semilla)
     ↓ (o CargadorRedCSV para red desde archivo)
 RedSocial — grafo dirigido ponderado
     ↓
-VacunacionService.aplicar(estrategia)
+red.setearPacienteCero(15% de N, random)   → infecta los MISMOS nodos en las 6 estrategias
+    ↓
+  [los pacientes cero pasan a INFECTADO y quedan fuera del pool susceptible]
+    ↓
+VacunacionService.aplicar(estrategia)        → vacuna el 20% de los SUSCEPTIBLES restantes
     │   ├── ALEATORIA     → VacunacionAleatoria.vacunar(red)
     │   ├── HUBS          → VacunacionHubs.vacunar(red)
     │   ├── BETWEENNESS   → VacunacionBetweenness.vacunar(red)
@@ -792,8 +802,6 @@ VacunacionService.aplicar(estrategia)
   [20% de susceptibles pasan a VACUNADO]
     ↓
 SimulacionService.ejecutar(red, config, grafico)
-    │
-    ├── red.setearPacienteCero(cantidad, random)  → infecta N nodos iniciales
     │
     └── loop hasta I = 0 o turno máximo:
           ├── ModeloSIRV.simularTurno(red)
@@ -808,5 +816,8 @@ SimulacionService.ejecutar(red, config, grafico)
     ↓
 ResultadoSimulacionDto
     ↓
-ExportadorResultados / GeneradorReportePDF / VentanaComparativaTabs
+ExportadorResultados / GeneradorReportePDF (8 págs.) / GeneradorReporteLotePDF / VentanaComparativaTabs
+
+Nota: el PDF individual termina con 8 páginas (la última es el glosario de métricas).
+El PDF de lotes agrega también la página de glosario (con la variable "Victorias" incluida).
 ```

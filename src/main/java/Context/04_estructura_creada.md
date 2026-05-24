@@ -16,6 +16,7 @@
 | v6 | 2026-05-17 | Reversión del estilo visual de GraphStream a la versión previa (la nueva versión introducía bugs con la leyenda flotante y el título dinámico). Nuevo flujo del comparativo con `JTabbedPane` de 6 pestañas (una por estrategia). Modo individual ya no ofrece exportar PDF. Ver detalle abajo. |
 | v7 | 2026-05-22 | Interfaz gráfica Swing completa con FlatDarkLaf — 4 ventanas nuevas que reemplazan al menú por consola como modo por defecto. Refinamiento visual integral del `GeneradorReportePDF` (paleta unificada, hero banner, tabla zebra con ganador destacado, score apilado). La consola sigue disponible vía `--consola` o headless. Ver detalle abajo. |
 | v8 | 2026-05-23 | Comparación justa (paciente cero al 15% fijado antes de vacunar, idéntico para las 6 estrategias), barra de turno con conteo SIRV bajo el grafo y nuevo modo por lotes (N grafos distintos por estrategia, comparación promedio + acumulada). Ver detalle abajo. |
+| v9 | 2026-05-23 | Glosario de métricas en los PDFs: ambos generadores (`GeneradorReportePDF` y `GeneradorReporteLotePDF`) agregan una página final "Glosario de métricas — Guía de interpretación" que explica cada variable (S, I, R, V, pico, t-pico, duración, afectados, contención %, R0, score compuesto, victorias), qué mide y qué valores son favorables. Ver detalle abajo. |
 
 ---
 
@@ -930,3 +931,77 @@ columna de victorias corrobora el resultado.
   misma semilla (12 nodos para N=80); lote de 3 grafos × 6 estrategias = 18
   simulaciones, suma de victorias = 3 (una por grafo), vacunados ≈ 13 (20% de los
   68 susceptibles tras fijar el 15% infectado).
+
+---
+
+## v9 — Glosario de métricas en los PDFs (2026-05-23)
+
+Los informes PDF carecían de una guía que explicara qué significa cada variable y
+qué valores se consideran buenos. Sin esa referencia, un lector sin formación
+epidemiológica podía interpretar mal, por ejemplo, que un R0 alto es deseable.
+
+### 1. Nueva página de glosario en ambos generadores
+
+Se añadió el método privado `agregarGlosario(Document doc)` a
+`GeneradorReportePDF` y `agregarGlosario(Document doc, boolean esLote)` a
+`GeneradorReporteLotePDF`. Ambos son la última sección del PDF, tras el desglose
+del score.
+
+#### Contenido de la página
+
+Tabla de 3 columnas: **Variable | Qué mide | Resultado favorable**
+
+| Variable | Qué mide | Resultado favorable |
+|---|---|---|
+| S — Susceptibles | Personas que pueden contagiarse | Alto al final del brote |
+| I — Infectados | Personas enfermas y contagiosas | Curva baja y estrecha |
+| R — Recuperados (afectados) | Personas que pasaron por la enfermedad | Número bajo |
+| V — Vacunados | Personas inmunizadas antes de infectarse | Número alto |
+| Pico máximo de infectados | Presión sobre el sistema de salud | **Menor = mejor** |
+| t-Pico (turno del pico) | Momento en que explotó el brote | **Mayor = mejor** |
+| Duración del brote | Turnos hasta que I = 0 | **Menor = mejor** |
+| Total de afectados | Cuántos enfermaron en total | **Menor = mejor** |
+| Contención % | % de la población que NO se infectó | **Mayor = mejor** (∼100%) |
+| R0 estimado | Velocidad de propagación (< 1: se extingue) | **Menor = mejor** |
+| Score compuesto [0–1] | Indicador global ponderado de las 5 métricas | **Mayor = mejor** |
+| Victorias (solo lote) | En cuántas corridas fue la mejor estrategia | **Mayor = mejor** |
+
+El reporte individual muestra las 11 primeras variables (sin "Victorias").
+El reporte de lotes muestra las 12 (con "Victorias") gracias al parámetro
+`esLote = true`.
+
+Al pie de la tabla se incluye una nota sobre la dependencia de la topología de
+red y por qué el modo por lotes ofrece un veredicto más robusto.
+
+### 2. Integración en el flujo de exportación
+
+En `GeneradorReportePDF.exportar`:
+```java
+agregarDesgloseScore(doc, resultados);
+doc.newPage();
+agregarGlosario(doc);   // nueva última página
+```
+
+En `GeneradorReporteLotePDF.exportar`:
+```java
+agregarDesgloseScore(doc, promedios);
+doc.newPage();
+agregarGlosario(doc, true);   // nueva última página (incluye "Victorias")
+```
+
+Los PDFs pasan de 7 páginas (individual) y N+2 páginas (lote) a **8 y N+3**
+respectivamente.
+
+### 3. Archivos modificados en v9
+
+- `src/main/java/infrastructure/persistence/GeneradorReportePDF.java`
+  (nuevo método `agregarGlosario`, llamada al final de `exportar`)
+- `src/main/java/infrastructure/persistence/GeneradorReporteLotePDF.java`
+  (nuevo método `agregarGlosario`, llamada al final de `exportar`)
+- `README.md`
+- `src/main/java/Context/01_contexto_proyecto.md`
+- `src/main/java/Context/04_estructura_creada.md` (este archivo)
+- `src/main/java/Context/05_grafos_y_algoritmos.md`
+
+### 4. Pruebas realizadas
+- `mvn compile`: BUILD SUCCESS sin errores ni warnings de compilación.

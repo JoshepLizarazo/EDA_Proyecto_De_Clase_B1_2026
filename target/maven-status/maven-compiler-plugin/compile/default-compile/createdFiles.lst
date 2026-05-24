@@ -8,6 +8,7 @@ presentation/VentanaResultadosLote$RendererGanador.class
 infrastructure/persistence/CargadorRedCSV.class
 presentation/GraficoSimulacion.class
 domain/model/RedSocial.class
+infrastructure/persistence/GeneradorReporteLotePDF.class
 presentation/VentanaConfiguracion$1.class
 presentation/VentanaResultadosLote$1.class
 application/dto/ResultadoSimulacionDto.class
@@ -55,3 +56,4 @@ application/dto/ResultadoLoteDto.class
 infrastructure/persistence/GeneradorReportePDF.class
 domain/value/EstadoSIRV.class
 domain/value/TipoEvento.class
+infrastructure/persistence/GeneradorReporteLotePDF$1.class

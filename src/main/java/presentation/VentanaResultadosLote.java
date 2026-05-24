@@ -4,7 +4,7 @@ import application.dto.ResultadoLoteDto;
 import application.dto.ResultadoSimulacionDto;
 import domain.value.EstrategiaVacunacion;
 import infrastructure.persistence.ExportadorResultados;
-import infrastructure.persistence.GeneradorReportePDF;
+import infrastructure.persistence.GeneradorReporteLotePDF;
 import infrastructure.util.AnalisisComparativo;
 import infrastructure.util.AnalisisComparativo.ScoreEstrategia;
 import java.awt.BorderLayout;
@@ -56,9 +56,9 @@ public class VentanaResultadosLote extends JFrame {
     private final List<ResultadoSimulacionDto> promedios;
     private final Map<EstrategiaVacunacion, Integer> victorias;
 
-    private final ExportadorResultados exportador  = new ExportadorResultados();
-    private final GeneradorReportePDF  generadorPdf = new GeneradorReportePDF();
-    private final AnalisisComparativo  analisis     = new AnalisisComparativo();
+    private final ExportadorResultados   exportador   = new ExportadorResultados();
+    private final GeneradorReporteLotePDF generadorPdf = new GeneradorReporteLotePDF();
+    private final AnalisisComparativo    analisis     = new AnalisisComparativo();
 
     public VentanaResultadosLote(ResultadoLoteDto lote) {
         super("Resultados — Experimento por lotes");
@@ -266,7 +266,7 @@ public class VentanaResultadosLote extends JFrame {
         File f = elegirDestino("reporte_lote.pdf", "Archivos PDF", "pdf");
         if (f == null) return;
         try {
-            generadorPdf.exportar(promedios, f.getAbsolutePath());
+            generadorPdf.exportar(lote, f.getAbsolutePath());
             JOptionPane.showMessageDialog(this, "PDF guardado en:\n" + f.getAbsolutePath(),
                     "Exportación exitosa", JOptionPane.INFORMATION_MESSAGE);
         } catch (IOException ex) {

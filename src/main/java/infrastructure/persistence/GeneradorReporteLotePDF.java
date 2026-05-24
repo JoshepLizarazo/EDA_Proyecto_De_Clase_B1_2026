@@ -1,5 +1,6 @@
 package infrastructure.persistence;
 
+import application.dto.ResultadoLoteDto;
 import application.dto.ResultadoSimulacionDto;
 import com.lowagie.text.Document;
 import com.lowagie.text.Element;
@@ -11,6 +12,7 @@ import com.lowagie.text.Phrase;
 import com.lowagie.text.pdf.PdfPCell;
 import com.lowagie.text.pdf.PdfPTable;
 import com.lowagie.text.pdf.PdfWriter;
+import domain.value.EstrategiaVacunacion;
 import infrastructure.util.AnalisisComparativo;
 import infrastructure.util.AnalisisComparativo.ScoreEstrategia;
 import java.awt.BasicStroke;
@@ -21,7 +23,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import javax.imageio.ImageIO;
@@ -48,21 +49,26 @@ import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
 
 /**
- * Genera un reporte PDF profesional con gráficos de las simulaciones comparativas.
+ * Genera un reporte PDF DEDICADO al experimento por lotes.
+ *
+ * A diferencia de {@link GeneradorReportePDF} (una sola corrida por estrategia),
+ * esta plantilla deja explícito que cada métrica es el PROMEDIO de las N corridas
+ * (N grafos distintos e independientes por estrategia) e incorpora el análisis
+ * ACUMULADO de victorias: en cuántas corridas cada estrategia obtuvo el mejor
+ * score compuesto.
  *
  * Estructura del PDF:
- *   1. Portada y configuración
- *   2. Tabla resumen y declaración del ganador
- *   3. Curva comparativa I(t) (todas las estrategias superpuestas)
- *   4. Curvas SIRV por estrategia
- *   5. Comparativas de cada métrica (barras)
- *   6. Score compuesto con desglose por componente
+ *   1. Portada dedicada al estudio por lotes (promedios)
+ *   2. Tabla resumen de promedios + victorias acumuladas, con ranking por score
+ *   3. Estrategia óptima identificada (promedio + acumulado)
+ *   4. Gráfico de victorias acumuladas
+ *   5. Curva I(t) promedio comparativa
+ *   6. Curvas SIRV promedio por estrategia
+ *   7. Comparativas por métrica (promedio)
+ *   8. Score compuesto con desglose por componente
  */
-public class GeneradorReportePDF {
+public class GeneradorReporteLotePDF {
 
-    // ── Paleta y constantes de estilo ─────────────────────────────────────────
-
-    /** Color asignado a cada estrategia (misma posición que la lista de resultados). */
     private static final Color[] PALETA = {
         new Color(0x3498db), new Color(0xe74c3c), new Color(0x2ecc71),
         new Color(0xf39c12), new Color(0x9b59b6), new Color(0x1abc9c)
@@ -74,12 +80,12 @@ public class GeneradorReportePDF {
     private static final Color COLOR_GRID      = new Color(0xe5e7eb);
     private static final Color COLOR_FONDO     = new Color(0xfafbfc);
     private static final Color COLOR_AXIS      = new Color(0xd1d5db);
-    private static final Color COLOR_ACENTO    = new Color(0x2c5fa6);
-    private static final Color COLOR_ACENTO_T  = new Color(0xdce6f5);
+    private static final Color COLOR_ACENTO    = new Color(0x6d28d9);   // morado: distingue el reporte de lote
+    private static final Color COLOR_ACENTO_T  = new Color(0xe9defb);
     private static final Color COLOR_GANA_BG   = new Color(0xdcfce7);
     private static final Color COLOR_GANA_TXT  = new Color(0x166534);
     private static final Color COLOR_ZEBRA     = new Color(0xf6f7f9);
-    private static final Color COLOR_TBL_HEAD  = new Color(0x2c5fa6);
+    private static final Color COLOR_TBL_HEAD  = new Color(0x6d28d9);
 
     private static final java.awt.Font FUENTE_TITULO_GRAFICO =
             new java.awt.Font("SansSerif", java.awt.Font.BOLD, 13);
@@ -92,47 +98,55 @@ public class GeneradorReportePDF {
     private static final java.awt.Font FUENTE_LEYENDA =
             new java.awt.Font("SansSerif", java.awt.Font.PLAIN, 11);
 
+    private final AnalisisComparativo analisis = new AnalisisComparativo();
+
     // ── API pública ───────────────────────────────────────────────────────────
 
-    public void exportar(List<ResultadoSimulacionDto> resultados, String rutaPdf) throws IOException {
-        if (resultados == null || resultados.isEmpty()) {
-            throw new IOException("Sin resultados para exportar");
+    public void exportar(ResultadoLoteDto lote, String rutaPdf) throws IOException {
+        if (lote == null || lote.getPromedios() == null || lote.getPromedios().isEmpty()) {
+            throw new IOException("Sin resultados de lote para exportar");
         }
+
+        List<ResultadoSimulacionDto> promedios = lote.getPromedios();
 
         Document doc = new Document(PageSize.A4, 36, 36, 50, 50);
         try (FileOutputStream fos = new FileOutputStream(rutaPdf)) {
             PdfWriter.getInstance(doc, fos);
             doc.open();
 
-            agregarPortada(doc, resultados);
-            agregarTablaResumen(doc, resultados);
-            agregarAnalisisGanador(doc, resultados);
+            agregarPortada(doc, lote);
+            agregarTablaResumen(doc, lote);
+            agregarAnalisisGanador(doc, lote);
             doc.newPage();
 
-            agregarGraficoCurvaIComparativa(doc, resultados);
+            agregarGraficoVictorias(doc, lote);
             doc.newPage();
 
-            agregarCurvasSIRVPorEstrategia(doc, resultados);
+            agregarGraficoCurvaIComparativa(doc, promedios);
             doc.newPage();
 
-            agregarBarrasMetricas(doc, resultados);
+            agregarCurvasSIRVPorEstrategia(doc, promedios);
             doc.newPage();
 
-            agregarDesgloseScore(doc, resultados);
+            agregarBarrasMetricas(doc, promedios);
             doc.newPage();
 
-            agregarGlosario(doc);
+            agregarDesgloseScore(doc, promedios);
+            doc.newPage();
+
+            agregarGlosario(doc, true);
 
             doc.close();
         } catch (Exception e) {
-            throw new IOException("Error generando PDF: " + e.getMessage(), e);
+            throw new IOException("Error generando PDF de lote: " + e.getMessage(), e);
         }
     }
 
     // ── Portada ───────────────────────────────────────────────────────────────
 
-    private void agregarPortada(Document doc, List<ResultadoSimulacionDto> resultados) throws Exception {
-        // Banda hero con título en blanco sobre fondo azul accent
+    private void agregarPortada(Document doc, ResultadoLoteDto lote) throws Exception {
+        List<ResultadoSimulacionDto> promedios = lote.getPromedios();
+
         Font fHeroTit = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 22, Color.WHITE);
         Font fHeroSub = FontFactory.getFont(FontFactory.HELVETICA, 12, COLOR_ACENTO_T);
 
@@ -145,12 +159,13 @@ public class GeneradorReportePDF {
         heroCell.setBorder(0);
         heroCell.setPadding(22);
 
-        Paragraph pT = new Paragraph("Reporte de Simulación Epidémica SIRV", fHeroTit);
+        Paragraph pT = new Paragraph("Reporte de Experimento por Lotes — SIRV", fHeroTit);
         pT.setAlignment(Element.ALIGN_CENTER);
         heroCell.addElement(pT);
 
         Paragraph pS = new Paragraph(
-                "Comparativo de Estrategias de Vacunación — Universidad Industrial de Santander",
+                "Estudio estadístico de estrategias de vacunación sobre grafos independientes "
+              + "— Universidad Industrial de Santander",
                 fHeroSub);
         pS.setAlignment(Element.ALIGN_CENTER);
         heroCell.addElement(pS);
@@ -158,23 +173,40 @@ public class GeneradorReportePDF {
         banner.addCell(heroCell);
         doc.add(banner);
 
-        // Caja de metadatos en tabla 2 columnas (etiqueta / valor)
         Font fLabel = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, COLOR_SUAVE);
         Font fValor = FontFactory.getFont(FontFactory.HELVETICA, 12, COLOR_BODY);
 
-        PdfPTable meta = new PdfPTable(new float[]{1f, 2f});
+        PdfPTable meta = new PdfPTable(new float[]{1.2f, 2f});
         meta.setWidthPercentage(85);
         meta.setHorizontalAlignment(Element.ALIGN_CENTER);
-        meta.setSpacingAfter(18);
+        meta.setSpacingAfter(14);
 
         String fecha = LocalDateTime.now()
                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
-        int totalPob = resultados.get(0).getTotalPoblacion();
+        int totalPob = promedios.get(0).getTotalPoblacion();
 
-        agregarMetaFila(meta, "Generado",              fecha,                          fLabel, fValor);
-        agregarMetaFila(meta, "Tamaño de la red",      totalPob + " personas",         fLabel, fValor);
-        agregarMetaFila(meta, "Estrategias evaluadas", String.valueOf(resultados.size()), fLabel, fValor);
+        agregarMetaFila(meta, "Generado",                fecha,                                          fLabel, fValor);
+        agregarMetaFila(meta, "Estrategias evaluadas",   String.valueOf(promedios.size()),               fLabel, fValor);
+        agregarMetaFila(meta, "Grafos por estrategia",   String.valueOf(lote.getNGrafosPorEstrategia()), fLabel, fValor);
+        agregarMetaFila(meta, "Simulaciones totales",    lote.getTotalSimulaciones() + " (grafos independientes)", fLabel, fValor);
+        agregarMetaFila(meta, "Tamaño de la red",        totalPob + " personas (aprox.)",                fLabel, fValor);
         doc.add(meta);
+
+        // Aviso destacado: todas las métricas son promedios
+        Font fAviso = FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 10, COLOR_ACENTO);
+        PdfPTable caja = new PdfPTable(1);
+        caja.setWidthPercentage(85);
+        caja.setHorizontalAlignment(Element.ALIGN_CENTER);
+        PdfPCell c = new PdfPCell(new Phrase(
+                "Todas las métricas de este informe son el PROMEDIO de las "
+              + lote.getNGrafosPorEstrategia() + " corridas de cada estrategia. "
+              + "Las victorias son la lectura ACUMULADA: en cuántas corridas la estrategia "
+              + "obtuvo el mejor score compuesto.", fAviso));
+        c.setBackgroundColor(COLOR_ACENTO_T);
+        c.setBorderColor(COLOR_ACENTO);
+        c.setPadding(10);
+        caja.addCell(c);
+        doc.add(caja);
     }
 
     private void agregarMetaFila(PdfPTable t, String etiqueta, String valor,
@@ -192,24 +224,29 @@ public class GeneradorReportePDF {
         t.addCell(c2);
     }
 
-    // ── Tabla resumen ─────────────────────────────────────────────────────────
+    // ── Tabla resumen (promedios + victorias) ──────────────────────────────────
 
-    private void agregarTablaResumen(Document doc, List<ResultadoSimulacionDto> resultados) throws Exception {
-        Font fEnc   = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, Color.WHITE);
-        Font fCelda = FontFactory.getFont(FontFactory.HELVETICA, 10, COLOR_BODY);
-        Font fGana  = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, COLOR_GANA_TXT);
+    private void agregarTablaResumen(Document doc, ResultadoLoteDto lote) throws Exception {
+        List<ResultadoSimulacionDto> promedios = lote.getPromedios();
+        Map<EstrategiaVacunacion, Integer> victorias = lote.getVictorias();
+        int n = lote.getNGrafosPorEstrategia();
+
+        Font fEnc   = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9.5f, Color.WHITE);
+        Font fCelda = FontFactory.getFont(FontFactory.HELVETICA, 9.5f, COLOR_BODY);
+        Font fGana  = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9.5f, COLOR_GANA_TXT);
         Font fH2    = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, COLOR_TITULO);
 
-        Paragraph h = new Paragraph("Tabla resumen de métricas", fH2);
-        h.setSpacingBefore(4);
+        Paragraph h = new Paragraph("Tabla resumen — promedios por estrategia", fH2);
+        h.setSpacingBefore(14);
         h.setSpacingAfter(10);
         doc.add(h);
 
-        PdfPTable tabla = new PdfPTable(new float[]{0.35f, 2.4f, 1f, 1f, 1.1f, 1.2f, 1.2f, 1f});
+        PdfPTable tabla = new PdfPTable(new float[]{0.35f, 2.2f, 1f, 1f, 1.1f, 1.2f, 1.2f, 0.9f, 1.1f});
         tabla.setWidthPercentage(100);
         tabla.setSpacingAfter(6);
 
-        String[] cabeceras = {"", "Estrategia", "Pico", "t-Pico", "Duración", "Afectados", "Contención%", "R0"};
+        String[] cabeceras = {"", "Estrategia", "Pico", "t-Pico", "Duración",
+                              "Afectados", "Contención%", "R0", "Victorias"};
         for (String c : cabeceras) {
             PdfPCell celda = new PdfPCell(new Phrase(c, fEnc));
             celda.setBackgroundColor(COLOR_TBL_HEAD);
@@ -219,38 +256,40 @@ public class GeneradorReportePDF {
             tabla.addCell(celda);
         }
 
-        ResultadoSimulacionDto ganador = resultados.stream()
-                .min(Comparator.comparingInt(ResultadoSimulacionDto::getPicoMaximoInfectados))
-                .orElse(null);
+        List<ScoreEstrategia> ranking = analisis.calcularRanking(promedios);
+        EstrategiaVacunacion ganador = ranking.isEmpty() ? null : ranking.get(0).estrategia;
 
         boolean alt = false;
-        for (int i = 0; i < resultados.size(); i++) {
-            ResultadoSimulacionDto r = resultados.get(i);
-            boolean esGanador = r.equals(ganador);
+        for (ScoreEstrategia s : ranking) {
+            ResultadoSimulacionDto r = porEstrategia(promedios, s.estrategia);
+            if (r == null) continue;
+            boolean esGanador = r.getEstrategia() == ganador;
             Color bg = esGanador ? COLOR_GANA_BG : (alt ? COLOR_ZEBRA : Color.WHITE);
             Font fil = esGanador ? fGana : fCelda;
             alt = !alt;
 
-            // Columna 0: cuadrito de color por estrategia
             PdfPCell color = new PdfPCell(new Phrase(" "));
-            color.setBackgroundColor(PALETA[i % PALETA.length]);
+            color.setBackgroundColor(colorDeEstrategia(promedios, r.getEstrategia()));
             color.setBorderColor(bg);
             color.setFixedHeight(20);
             tabla.addCell(color);
 
             String nombre = (esGanador ? "* " : "  ") + r.getEstrategia().name();
-            agregarCelda(tabla, nombre,                                          fil, bg, Element.ALIGN_LEFT);
-            agregarCelda(tabla, String.valueOf(r.getPicoMaximoInfectados()),     fil, bg, Element.ALIGN_CENTER);
-            agregarCelda(tabla, String.valueOf(r.getTurnoDePico()),              fil, bg, Element.ALIGN_CENTER);
-            agregarCelda(tabla, String.valueOf(r.getDuracionBrote()),            fil, bg, Element.ALIGN_CENTER);
-            agregarCelda(tabla, String.valueOf(r.getTotalRecuperados()),         fil, bg, Element.ALIGN_CENTER);
+            agregarCelda(tabla, nombre,                                              fil, bg, Element.ALIGN_LEFT);
+            agregarCelda(tabla, String.valueOf(r.getPicoMaximoInfectados()),         fil, bg, Element.ALIGN_CENTER);
+            agregarCelda(tabla, String.valueOf(r.getTurnoDePico()),                  fil, bg, Element.ALIGN_CENTER);
+            agregarCelda(tabla, String.valueOf(r.getDuracionBrote()),                fil, bg, Element.ALIGN_CENTER);
+            agregarCelda(tabla, String.valueOf(r.getTotalRecuperados()),             fil, bg, Element.ALIGN_CENTER);
             agregarCelda(tabla, String.format("%.1f%%", r.getPorcentajeContencion()), fil, bg, Element.ALIGN_CENTER);
-            agregarCelda(tabla, String.format("%.2f",  r.getR0Estimado()),       fil, bg, Element.ALIGN_CENTER);
+            agregarCelda(tabla, String.format("%.2f",  r.getR0Estimado()),           fil, bg, Element.ALIGN_CENTER);
+            agregarCelda(tabla, victorias.getOrDefault(r.getEstrategia(), 0) + " / " + n,
+                                                                                     fil, bg, Element.ALIGN_CENTER);
         }
         doc.add(tabla);
 
         Paragraph nota = new Paragraph(
-                "* fila destacada = estrategia con menor pico de infectados.",
+                "* fila destacada = mejor score compuesto promedio. "
+              + "Métricas = promedio de las N corridas; Victorias = corridas ganadas (acumulado).",
                 FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 9, COLOR_SUAVE));
         nota.setSpacingAfter(10);
         doc.add(nota);
@@ -266,33 +305,64 @@ public class GeneradorReportePDF {
         tabla.addCell(c);
     }
 
-    private void agregarAnalisisGanador(Document doc, List<ResultadoSimulacionDto> resultados) throws Exception {
+    private void agregarAnalisisGanador(Document doc, ResultadoLoteDto lote) throws Exception {
+        List<ResultadoSimulacionDto> promedios = lote.getPromedios();
+        Map<EstrategiaVacunacion, Integer> victorias = lote.getVictorias();
+
         Font fH2  = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, COLOR_TITULO);
         Font fJus = FontFactory.getFont(FontFactory.HELVETICA, 11, COLOR_BODY);
         Font fGan = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 13, new Color(0x166534));
 
-        AnalisisComparativo analisis = new AnalisisComparativo();
-        List<ScoreEstrategia> ranking = analisis.calcularRanking(resultados);
+        List<ScoreEstrategia> ranking = analisis.calcularRanking(promedios);
         if (ranking.isEmpty()) return;
-
         ScoreEstrategia ganador = ranking.get(0);
 
-        Paragraph h = new Paragraph("Estrategia óptima identificada", fH2);
+        Paragraph h = new Paragraph("Estrategia óptima identificada (promedio + acumulado)", fH2);
         h.setSpacingBefore(14);
         h.setSpacingAfter(8);
         doc.add(h);
 
         Paragraph gan = new Paragraph(String.format(
-            "* %s  —  score compuesto %.3f / 1.000", ganador.estrategia, ganador.score), fGan);
+            "* %s  —  score compuesto promedio %.3f / 1.000  ·  %d de %d corridas ganadas",
+            ganador.estrategia, ganador.score,
+            victorias.getOrDefault(ganador.estrategia, 0), lote.getNGrafosPorEstrategia()), fGan);
         gan.setSpacingAfter(6);
         doc.add(gan);
 
-        Paragraph jus = new Paragraph(analisis.justificarGanador(ranking, resultados), fJus);
+        Paragraph jus = new Paragraph(analisis.justificarGanador(ranking, promedios), fJus);
         jus.setSpacingAfter(6);
         doc.add(jus);
     }
 
-    // ── Gráficos de líneas ────────────────────────────────────────────────────
+    // ── Gráfico de victorias acumuladas ─────────────────────────────────────────
+
+    private void agregarGraficoVictorias(Document doc, ResultadoLoteDto lote) throws Exception {
+        Font fH2 = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, COLOR_TITULO);
+        Paragraph h = new Paragraph("Victorias acumuladas por estrategia", fH2);
+        h.setSpacingAfter(8);
+        doc.add(h);
+
+        Font fTxt = FontFactory.getFont(FontFactory.HELVETICA, 10, COLOR_BODY);
+        Paragraph desc = new Paragraph(String.format(
+            "En cada una de las %d corridas las %d estrategias se comparan por su score "
+          + "compuesto; la barra indica en cuántas corridas cada estrategia quedó primera.",
+            lote.getNGrafosPorEstrategia(), lote.getPromedios().size()), fTxt);
+        desc.setSpacingAfter(10);
+        doc.add(desc);
+
+        DefaultCategoryDataset ds = new DefaultCategoryDataset();
+        for (ResultadoSimulacionDto r : lote.getPromedios()) {
+            int v = lote.getVictorias().getOrDefault(r.getEstrategia(), 0);
+            ds.addValue((double) v, "Victorias", r.getEstrategia().name());
+        }
+        JFreeChart chart = ChartFactory.createBarChart(
+            "Corridas ganadas (de " + lote.getNGrafosPorEstrategia() + ")", "", "Victorias",
+            ds, PlotOrientation.VERTICAL, false, true, false);
+        aplicarEstiloBarras(chart);
+        doc.add(jfreechartAImagen(chart, 520, 300));
+    }
+
+    // ── Curvas (sobre promedios) ────────────────────────────────────────────────
 
     private void agregarGraficoCurvaIComparativa(Document doc, List<ResultadoSimulacionDto> resultados) throws Exception {
         XYSeriesCollection dataset = new XYSeriesCollection();
@@ -306,8 +376,8 @@ public class GeneradorReportePDF {
         }
 
         JFreeChart chart = ChartFactory.createXYLineChart(
-            "Curva de Infectados I(t) por estrategia",
-            "Turno", "Infectados activos",
+            "Curva de Infectados I(t) promedio por estrategia",
+            "Turno", "Infectados activos (promedio)",
             dataset, PlotOrientation.VERTICAL, true, true, false);
         aplicarEstiloXY(chart, true);
         doc.add(jfreechartAImagen(chart, 520, 340));
@@ -315,7 +385,7 @@ public class GeneradorReportePDF {
 
     private void agregarCurvasSIRVPorEstrategia(Document doc, List<ResultadoSimulacionDto> resultados) throws Exception {
         Font fH2 = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, COLOR_TITULO);
-        Paragraph h = new Paragraph("Curvas SIRV por estrategia", fH2);
+        Paragraph h = new Paragraph("Curvas SIRV promedio por estrategia", fH2);
         h.setSpacingAfter(10);
         doc.add(h);
 
@@ -335,12 +405,11 @@ public class GeneradorReportePDF {
             ds.addSeries(sS); ds.addSeries(sI); ds.addSeries(sR); ds.addSeries(sV);
 
             JFreeChart chart = ChartFactory.createXYLineChart(
-                r.getEstrategia().name(),
+                r.getEstrategia().name() + " (promedio)",
                 "Turno", "Personas",
                 ds, PlotOrientation.VERTICAL, true, true, false);
 
             aplicarEstiloXY(chart, false);
-            // Override: SIRV usa colores fijos por estado
             XYPlot plot = chart.getXYPlot();
             XYLineAndShapeRenderer rend = (XYLineAndShapeRenderer) plot.getRenderer();
             rend.setSeriesPaint(0, new Color(0x3498db));
@@ -352,29 +421,28 @@ public class GeneradorReportePDF {
         }
     }
 
-    // ── Barras de métricas ────────────────────────────────────────────────────
+    // ── Barras de métricas (promedio) ───────────────────────────────────────────
 
     private void agregarBarrasMetricas(Document doc, List<ResultadoSimulacionDto> resultados) throws Exception {
         Font fH2 = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, COLOR_TITULO);
-        Paragraph h = new Paragraph("Comparativo por métrica", fH2);
+        Paragraph h = new Paragraph("Comparativo por métrica (promedio del lote)", fH2);
         h.setSpacingAfter(8);
         doc.add(h);
 
         doc.add(crearLeyendaEstrategias(resultados));
 
-        doc.add(barChart("Pico máximo de infectados", "Pico", resultados,
+        doc.add(barChart("Pico máximo de infectados (promedio)", "Pico", resultados,
                 r -> (double) r.getPicoMaximoInfectados(), 520, 230));
-        doc.add(barChart("Duración del brote (turnos)", "Duración", resultados,
+        doc.add(barChart("Duración del brote (turnos, promedio)", "Duración", resultados,
                 r -> (double) r.getDuracionBrote(), 520, 230));
-        doc.add(barChart("Total de afectados", "Afectados", resultados,
+        doc.add(barChart("Total de afectados (promedio)", "Afectados", resultados,
                 r -> (double) r.getTotalRecuperados(), 520, 230));
-        doc.add(barChart("Porcentaje de contención (%)", "Contención", resultados,
+        doc.add(barChart("Porcentaje de contención (%, promedio)", "Contención", resultados,
                 ResultadoSimulacionDto::getPorcentajeContencion, 520, 230));
-        doc.add(barChart("R0 estimado", "R0", resultados,
+        doc.add(barChart("R0 estimado (promedio)", "R0", resultados,
                 ResultadoSimulacionDto::getR0Estimado, 520, 230));
     }
 
-    /** Pequeña leyenda horizontal con un cuadrito de color por estrategia. */
     private PdfPTable crearLeyendaEstrategias(List<ResultadoSimulacionDto> resultados) {
         Font fLey = FontFactory.getFont(FontFactory.HELVETICA, 9, COLOR_BODY);
         PdfPTable leyenda = new PdfPTable(resultados.size() * 2);
@@ -415,20 +483,20 @@ public class GeneradorReportePDF {
         return jfreechartAImagen(chart, w, h);
     }
 
-    // ── Desglose del score ────────────────────────────────────────────────────
+    // ── Desglose del score ──────────────────────────────────────────────────────
 
     private void agregarDesgloseScore(Document doc, List<ResultadoSimulacionDto> resultados) throws Exception {
         Font fH2  = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, COLOR_TITULO);
         Font fTxt = FontFactory.getFont(FontFactory.HELVETICA, 10, COLOR_BODY);
 
-        Paragraph h = new Paragraph("Desglose del score compuesto", fH2);
+        Paragraph h = new Paragraph("Desglose del score compuesto (sobre promedios)", fH2);
         h.setSpacingAfter(8);
         doc.add(h);
 
         Paragraph desc = new Paragraph(String.format(
             "Score = %.2f·pico + %.2f·duración + %.2f·afectados + %.2f·contención + %.2f·R0%n"
           + "Cada métrica se normaliza a [0,1]; las que son 'menor es mejor' se invierten.%n"
-          + "El score final mide la calidad global de la estrategia (mayor = mejor).",
+          + "El score se calcula sobre las métricas promediadas del lote (mayor = mejor).",
           AnalisisComparativo.W_PICO,
           AnalisisComparativo.W_DURACION,
           AnalisisComparativo.W_AFECTADOS,
@@ -437,7 +505,7 @@ public class GeneradorReportePDF {
         desc.setSpacingAfter(12);
         doc.add(desc);
 
-        List<ScoreEstrategia> ranking = new AnalisisComparativo().calcularRanking(resultados);
+        List<ScoreEstrategia> ranking = analisis.calcularRanking(resultados);
 
         DefaultCategoryDataset ds = new DefaultCategoryDataset();
         for (ScoreEstrategia se : ranking) {
@@ -447,16 +515,15 @@ public class GeneradorReportePDF {
         }
 
         JFreeChart chart = ChartFactory.createStackedBarChart(
-            "Score compuesto por estrategia (apilado)",
+            "Score compuesto promedio por estrategia (apilado)",
             "Estrategia", "Score parcial",
             ds, PlotOrientation.VERTICAL, true, true, false);
 
         aplicarEstiloApilado(chart);
-
         doc.add(jfreechartAImagen(chart, 520, 340));
     }
 
-    // ── Estilos de gráfico (helpers) ──────────────────────────────────────────
+    // ── Estilos de gráfico (helpers) ────────────────────────────────────────────
 
     private void aplicarEstiloBarras(JFreeChart chart) {
         estilizarBase(chart);
@@ -512,7 +579,6 @@ public class GeneradorReportePDF {
 
         estilizarEjeCategoria(plot.getDomainAxis());
         estilizarEjeNumerico((NumberAxis) plot.getRangeAxis());
-
         estilizarLeyenda(chart.getLegend());
     }
 
@@ -593,9 +659,9 @@ public class GeneradorReportePDF {
         legend.setMargin(new RectangleInsets(4, 4, 4, 4));
     }
 
-    // ── Glosario de métricas ──────────────────────────────────────────────────
+    // ── Glosario de métricas ────────────────────────────────────────────────────
 
-    private void agregarGlosario(Document doc) throws Exception {
+    private void agregarGlosario(Document doc, boolean esLote) throws Exception {
         Font fH2    = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, COLOR_TITULO);
         Font fIntro = FontFactory.getFont(FontFactory.HELVETICA, 10, COLOR_BODY);
         Font fEnc   = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9.5f, Color.WHITE);
@@ -610,7 +676,8 @@ public class GeneradorReportePDF {
         Paragraph intro = new Paragraph(
             "Esta sección explica cada variable que aparece en el informe, qué representa "
           + "dentro del modelo epidémico SIRV y qué valores se consideran favorables desde "
-          + "el punto de vista de salud pública.", fIntro);
+          + "el punto de vista de salud pública. Las métricas de este informe son "
+          + "PROMEDIOS de múltiples corridas independientes.", fIntro);
         intro.setSpacingAfter(12);
         doc.add(intro);
 
@@ -663,10 +730,16 @@ public class GeneradorReportePDF {
             {"Score compuesto\n[0 – 1]",
              "Indicador global que combina las cinco métricas con pesos: 30 % pico + 25 % afectados + 20 % contención + 15 % duración + 10 % R0. Cada métrica se normaliza; las de \"menor es mejor\" se invierten.",
              "Mayor = mejor. 1,000 representaría la estrategia ideal en todos los frentes."},
+            {"Victorias\n(acumulado lote)",
+             "En cuántas de las N corridas independientes esta estrategia obtuvo el mayor score compuesto. Mide la consistencia de la estrategia ante diferentes topologías de red.",
+             "Mayor = mejor. Más victorias indican robustez frente a variaciones en la red."},
         };
 
-        for (String[] f : filas) {
+        int totalFilas = esLote ? filas.length : filas.length - 1;
+        for (int i = 0; i < totalFilas; i++) {
+            String[] f = filas[i];
             Color bgFila = bg[fila % 2];
+
             PdfPCell cVar = new PdfPCell(new Phrase(f[0], fVar));
             cVar.setBackgroundColor(bgFila);
             cVar.setBorderColor(new Color(0xeceff3));
@@ -691,13 +764,13 @@ public class GeneradorReportePDF {
         Paragraph nota = new Paragraph(
             "Nota: el modelo SIRV es una simulación discreta sobre grafos — los resultados dependen "
           + "de la topología de la red (quién está conectado con quién). Por eso una misma estrategia "
-          + "puede comportarse distinto en redes distintas, algo que el modo de experimento por lotes "
-          + "captura promediando múltiples grafos independientes.",
+          + "puede comportarse distinto en redes distintas; el experimento por lotes captura esta "
+          + "variabilidad promediando múltiples grafos independientes y contando victorias.",
             FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 9, COLOR_SUAVE));
         doc.add(nota);
     }
 
-    // ── Conversión a imagen embebible en PDF ──────────────────────────────────
+    // ── Conversión a imagen embebible en PDF ────────────────────────────────────
 
     private com.lowagie.text.Image jfreechartAImagen(JFreeChart chart, int w, int h) throws Exception {
         java.awt.image.BufferedImage img = chart.createBufferedImage(w, h);
@@ -707,5 +780,21 @@ public class GeneradorReportePDF {
         image.setAlignment(Element.ALIGN_CENTER);
         image.scaleToFit(520, h);
         return image;
+    }
+
+    // ── Auxiliares ──────────────────────────────────────────────────────────────
+
+    private ResultadoSimulacionDto porEstrategia(List<ResultadoSimulacionDto> lista, EstrategiaVacunacion e) {
+        for (ResultadoSimulacionDto r : lista) {
+            if (r.getEstrategia() == e) return r;
+        }
+        return null;
+    }
+
+    private Color colorDeEstrategia(List<ResultadoSimulacionDto> lista, EstrategiaVacunacion e) {
+        for (int i = 0; i < lista.size(); i++) {
+            if (lista.get(i).getEstrategia() == e) return PALETA[i % PALETA.length];
+        }
+        return PALETA[0];
     }
 }

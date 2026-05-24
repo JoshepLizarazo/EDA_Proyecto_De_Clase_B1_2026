@@ -32,6 +32,8 @@ Las epidemias se propagan de manera distinta según la estructura social de una 
 
 A partir de este modelo, se evalúa qué estrategia de vacunación —con recursos limitados al **20% de la población**— logra contener el brote de forma más eficaz, comparando cinco enfoques distintos.
 
+Para que la comparación sea **justa**, el brote arranca con un **15% de infectados iniciales** que son los mismos para todas las estrategias (se fijan antes de vacunar), y la vacunación del 20% se aplica sobre los susceptibles restantes. Además del modo individual y del comparativo (las estrategias sobre una misma red), un **modo por lotes** corre N grafos distintos por estrategia y promedia los resultados para un veredicto estadísticamente más robusto.
+
 ---
 
 ## Objetivos
@@ -131,3 +133,7 @@ Al finalizar cada simulación se presenta:
 - Duración total del brote (en turnos).
 - Total de recuperados (infectados que pasaron por el sistema).
 - Estrategia ganadora con justificación cuantitativa.
+
+En el **modo por lotes**, además, se presenta una comparación **promedio** (métricas promediadas sobre los N grafos de cada estrategia) y **acumulada** (en cuántas corridas cada estrategia obtuvo el mejor score compuesto), con su estrategia ganadora.
+
+Ambos tipos de informe PDF (individual y por lotes) incluyen al final una página de **Glosario de métricas — Guía de interpretación**: una tabla que explica cada variable del modelo (S, I, R, V, pico, t-pico, duración, afectados, contención %, R0, score compuesto y victorias), qué mide y qué valores se consideran favorables desde el punto de vista de salud pública. El informe de lotes incluye además la variable "Victorias".

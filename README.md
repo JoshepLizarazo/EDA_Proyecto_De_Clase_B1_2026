@@ -120,7 +120,8 @@ score = 0.30·norm_inv(picoMaximo) + 0.15·norm_inv(duracion)
 - Bajo el grafo, una **barra de turno** muestra en vivo el turno actual y el conteo `S / I / R / V`, tanto en la ventana individual como en cada pestaña del comparativo.
 - En modo comparativo, una `VentanaComparativaTabs` aloja las 6 simulaciones en pestañas separadas (`JTabbedPane`).
 - `PanelEstadisticas` dibuja curvas SIRV en ASCII al cierre.
-- `GeneradorReportePDF` (JFreeChart + OpenPDF) produce un PDF de 7 páginas con: portada, tabla resumen con zebra y ganador destacado, veredicto cuantitativo, curva I(t) comparativa, curvas SIRV por estrategia, barras por métrica con paleta unificada y desglose del score apilado.
+- `GeneradorReportePDF` (JFreeChart + OpenPDF) produce un PDF de **8 páginas** con: portada, tabla resumen con zebra y ganador destacado, veredicto cuantitativo, curva I(t) comparativa, curvas SIRV por estrategia, barras por métrica con paleta unificada, desglose del score apilado, y una página final de **Glosario de métricas** que explica cada variable (S, I, R, V, pico, t-pico, duración, afectados, contención %, R0, score) con su interpretación y qué valores son favorables.
+- `GeneradorReporteLotePDF` genera el PDF equivalente para el modo por lotes, con las mismas secciones más la columna de victorias acumuladas y el glosario extendido (incluye la variable "Victorias").
 
 ### 2.7 BFS Ponderado — cadena de contagio
 
@@ -259,10 +260,11 @@ Trabas_y_Grafos/
     │
     └── infrastructure/            ← CAPA 4 — Técnico
         ├── persistence/
-        │   ├── CargadorRedCSV.java         ← Carga red desde CSV
-        │   ├── ExportadorResultados.java   ← Exporta a .txt / .csv
-        │   ├── GeneradorReportePDF.java    ← PDF de 7 páginas (JFreeChart + OpenPDF)
-        │   └── RedMemoryRepository.java    ← Repositorio en memoria
+        │   ├── CargadorRedCSV.java            ← Carga red desde CSV
+        │   ├── ExportadorResultados.java      ← Exporta a .txt / .csv
+        │   ├── GeneradorReportePDF.java       ← PDF 8 págs. — individual/comparativo (JFreeChart + OpenPDF)
+        │   ├── GeneradorReporteLotePDF.java   ← PDF de lotes — promedios + victorias + glosario
+        │   └── RedMemoryRepository.java       ← Repositorio en memoria
         └── util/
             ├── GeneradorPoblacion.java     ← Genera red con patrones colombianos (6 fases)
             ├── CalculadorEstadisticas.java ← Métricas finales
@@ -359,6 +361,7 @@ Modo experimento por lotes (ejecutarLote):
 | v6 | 2026-05-17 | Comparativo con `JTabbedPane` de 6 pestañas, modo embebido en `GraficoSimulacion`. |
 | v7 | 2026-05-22 | Interfaz Swing completa con FlatDarkLaf (4 ventanas nuevas). Refinamiento visual integral del `GeneradorReportePDF`. Consola disponible vía `--consola` o headless. |
 | v8 | 2026-05-23 | Comparación justa: paciente cero (15% de la población) fijado **antes** de vacunar, idéntico para las 6 estrategias. Barra de turno con conteo SIRV bajo el grafo. Nuevo **modo por lotes**: N grafos distintos por estrategia con comparación promedio + acumulada (`AgregadorLote`, `ResultadoLoteDto`, `VentanaResultadosLote`, `ModoSimulacion`). |
+| v9 | 2026-05-23 | **Glosario de métricas** en ambos PDFs: página final "Guía de interpretación" que explica cada variable del informe (S, I, R, V, pico, t-pico, duración, afectados, contención %, R0, score compuesto, victorias), qué mide y qué valores son favorables. PDF individual pasa de 7 a 8 páginas. |
 
 ---
 
@@ -369,5 +372,5 @@ La carpeta `src/main/java/Context/` contiene el diseño detallado del proyecto:
 - `01_contexto_proyecto.md` — Contexto académico, problema y objetivos.
 - `02_planificacion_tecnica.md` — Arquitectura por capas, responsabilidades archivo a archivo.
 - `03_modelo_matematico.md` — Formalización del grafo, SIRV, estrategias e hipótesis.
-- `04_estructura_creada.md` — Historial de cambios (v1 → v8) y detalle de implementación.
+- `04_estructura_creada.md` — Historial de cambios (v1 → v9) y detalle de implementación.
 - `05_grafos_y_algoritmos.md` — Explicación técnica completa de los algoritmos y la estructura del grafo.

@@ -24,6 +24,7 @@
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/domain/value/TipoEvento.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/infrastructure/persistence/CargadorRedCSV.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/infrastructure/persistence/ExportadorResultados.java
+/home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/infrastructure/persistence/GeneradorReporteLotePDF.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/infrastructure/persistence/GeneradorReportePDF.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/infrastructure/persistence/RedMemoryRepository.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/infrastructure/util/AgregadorLote.java
