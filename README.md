@@ -24,6 +24,8 @@ Es un simulador en **Java 17** que modela cómo una enfermedad se propaga a trav
 
 El objetivo central es **comparar seis estrategias de vacunación** bajo la restricción de que solo se puede vacunar al **20% de la población**, y determinar cuantitativamente cuál minimiza el impacto del brote.
 
+Para que la comparación sea **justa**, el brote arranca con un **15% de infectados iniciales fijos** (los mismos pacientes cero para las seis estrategias) y luego cada estrategia vacuna el 20% de los susceptibles restantes — así ninguna estrategia parte de una condición inicial distinta. Además del modo individual y del comparativo sobre una misma red, existe un **modo por lotes** que corre N grafos distintos por estrategia y promedia los resultados (ver §3).
+
 ### Estrategias de vacunación implementadas
 
 | # | Estrategia | Nivel | Complejidad | Idea clave |
@@ -115,6 +117,7 @@ score = 0.30·norm_inv(picoMaximo) + 0.15·norm_inv(duracion)
 ### 2.6 Visualización
 
 - **GraphStream 2.0** muestra el grafo en tiempo real con nodos coloreados por estado SIRV (azul / rojo / verde / amarillo) y aristas cuyo grosor refleja `probContagio`.
+- Bajo el grafo, una **barra de turno** muestra en vivo el turno actual y el conteo `S / I / R / V`, tanto en la ventana individual como en cada pestaña del comparativo.
 - En modo comparativo, una `VentanaComparativaTabs` aloja las 6 simulaciones en pestañas separadas (`JTabbedPane`).
 - `PanelEstadisticas` dibuja curvas SIRV en ASCII al cierre.
 - `GeneradorReportePDF` (JFreeChart + OpenPDF) produce un PDF de 7 páginas con: portada, tabla resumen con zebra y ganador destacado, veredicto cuantitativo, curva I(t) comparativa, curvas SIRV por estrategia, barras por métrica con paleta unificada y desglose del score apilado.
@@ -138,14 +141,32 @@ mvn exec:java -Dexec.args="--consola"     # Fuerza el menú por consola
 
 En entornos headless (CI, servidores sin pantalla), el programa detecta automáticamente `GraphicsEnvironment.isHeadless()` y cae a la consola sin errores.
 
+### Modos de simulación
+
+| Modo | Qué hace |
+|---|---|
+| **Individual** | Corre una sola estrategia (elegida por el usuario) con visualización GraphStream. |
+| **Comparativo** | Corre las 6 estrategias sobre la **misma red** (mismos infectados iniciales) y las muestra en pestañas. |
+| **Experimento por lotes** | Corre **N grafos distintos por estrategia** (6 × N grafos independientes), sin animación, y promedia los resultados. |
+
 ### Ventanas de la UI
 
 | Ventana | Descripción |
 |---|---|
-| `VentanaMenuPrincipal` | Ventana raíz. Banner azul con título, modo individual/comparativo y botones Continuar/Salir. |
-| `VentanaConfiguracion` | Modal con formulario completo: tamaño de red, estrategia, turnos, días de recuperación, visualización y carga desde CSV. |
+| `VentanaMenuPrincipal` | Ventana raíz. Banner azul con título, selección de modo (individual / comparativo / lotes) y botones Continuar/Salir. |
+| `VentanaConfiguracion` | Modal con formulario: tamaño de red, estrategia (solo individual), grafos por estrategia (solo lotes), turnos, días de recuperación, visualización y carga desde CSV. |
 | `VentanaResultados` | Tabla de métricas con fila ganadora resaltada, ranking con score compuesto, curva I(t) con JFreeChart, y botones de exportación. |
-| `DialogoProgreso` | Diálogo modal con barra de progreso indeterminada mientras el `SwingWorker` ejecuta la simulación en background. |
+| `VentanaResultadosLote` | Resultados del lote: tabla de métricas **promedio** + victorias por estrategia, ranking por score compuesto promedio, curva I(t) promedio y exportación. |
+| `DialogoProgreso` | Diálogo modal con barra de progreso (indeterminada en individual/comparativo; determinada "grafo X de N" en el lote). |
+
+### Modo por lotes — comparación promedio + acumulada
+
+En el experimento por lotes, cada estrategia se evalúa sobre **N grafos distintos e independientes** (semilla única por cada par estrategia–corrida; un `x100` produce 600 grafos diferentes). Al terminar se reportan dos lecturas complementarias:
+
+- **Promedio**: se promedian las métricas de las N corridas de cada estrategia (pico, duración, afectados, contención, R0) y se rankea con el mismo score compuesto del comparativo.
+- **Acumulado (victorias)**: en cada corrida se rankean las estrategias por score y se cuenta una victoria para la mejor; el conteo final estima qué tan seguido cada estrategia resulta la mejor sobre grafos aleatorios.
+
+Como cada estrategia enfrenta una muestra amplia de topologías distintas, el veredicto es estadísticamente más robusto que una sola corrida.
 
 ---
 
@@ -192,12 +213,14 @@ Trabas_y_Grafos/
     │
     ├── presentation/              ← CAPA 1 — UI
     │   ├── Main.java                       ← Punto de entrada (Swing por defecto, consola con --consola)
-    │   ├── VentanaMenuPrincipal.java       ← Ventana raíz Swing (FlatDarkLaf)
+    │   ├── ModoSimulacion.java             ← enum {INDIVIDUAL, COMPARATIVO, LOTE}
+    │   ├── VentanaMenuPrincipal.java       ← Ventana raíz Swing (FlatDarkLaf, 3 modos)
     │   ├── VentanaConfiguracion.java       ← Formulario modal de configuración
     │   ├── VentanaResultados.java          ← Tabla de métricas + curva I(t) + exportación
-    │   ├── DialogoProgreso.java            ← Barra de progreso durante la simulación
+    │   ├── VentanaResultadosLote.java      ← Resultados del lote (promedio + victorias)
+    │   ├── DialogoProgreso.java            ← Barra de progreso (indeterminada / por lotes)
     │   ├── ConsolaMenu.java                ← Menú por consola (fallback / --consola)
-    │   ├── GraficoSimulacion.java          ← Vista GraphStream (standalone + embebida)
+    │   ├── GraficoSimulacion.java          ← Vista GraphStream + barra de turno (standalone + embebida)
     │   ├── VentanaComparativaTabs.java     ← JTabbedPane con las 6 simulaciones
     │   └── PanelEstadisticas.java          ← Curvas SIRV en ASCII
     │
@@ -206,10 +229,11 @@ Trabas_y_Grafos/
     │   │   ├── SimulacionService.java      ← Loop de turnos + historial
     │   │   └── VacunacionService.java      ← Switch por estrategia
     │   ├── dto/
-    │   │   ├── ConfiguracionDto.java       ← Entrada del usuario
-    │   │   └── ResultadoSimulacionDto.java ← Métricas finales
+    │   │   ├── ConfiguracionDto.java       ← Entrada del usuario (paciente cero = 15%)
+    │   │   ├── ResultadoSimulacionDto.java ← Métricas finales
+    │   │   └── ResultadoLoteDto.java       ← Promedios + victorias del experimento por lotes
     │   └── command/
-    │       ├── IniciarSimulacionCommand.java
+    │       ├── IniciarSimulacionCommand.java  ← ejecutar / ejecutarComparativo / ejecutarLote
     │       └── AplicarVacunacionCommand.java
     │
     ├── domain/                    ← CAPA 3 — Núcleo
@@ -242,7 +266,8 @@ Trabas_y_Grafos/
         └── util/
             ├── GeneradorPoblacion.java     ← Genera red con patrones colombianos (6 fases)
             ├── CalculadorEstadisticas.java ← Métricas finales
-            └── AnalisisComparativo.java    ← Score compuesto y ranking
+            ├── AnalisisComparativo.java    ← Score compuesto y ranking
+            └── AgregadorLote.java          ← Promedia las N corridas y cuenta victorias
 ```
 
 ---
@@ -275,10 +300,10 @@ mvn exec:java -Dexec.args="--consola"
 
 ### Desde la UI Swing
 
-1. Seleccionar modo: **individual** (una estrategia) o **comparativo** (las 6 a la vez).
-2. Configurar en el formulario: tamaño de red, estrategia, turnos, días de recuperación y si se desea visualización GraphStream.
-3. Opcionalmente cargar una red desde CSV (`data/`).
-4. Al finalizar el comparativo, exportar los resultados en **TXT**, **PDF** o ambos.
+1. Seleccionar modo: **individual** (una estrategia), **comparativo** (las 6 sobre la misma red) o **experimento por lotes** (N grafos distintos por estrategia).
+2. Configurar en el formulario: tamaño de red, estrategia (individual), grafos por estrategia (lotes), turnos, días de recuperación y si se desea visualización GraphStream.
+3. Opcionalmente cargar una red desde CSV (`data/`) — no aplica en modo lotes.
+4. Al finalizar, exportar los resultados en **TXT**, **PDF** o ambos.
 
 ### Desde la consola (modo --consola o headless)
 
@@ -302,17 +327,23 @@ IniciarSimulacionCommand
   ├── GeneradorPoblacion (6 fases)       ← genera RedSocial colombiana
   │   ─ó ─
   │   CargadorRedCSV                     ← alternativa: red desde data/*.csv
-  ├── VacunacionService                  ← vacuna el 20% según estrategia
+  ├── setearPacienteCero (15%)           ← infecta los mismos nodos antes de vacunar
+  ├── VacunacionService                  ← vacuna el 20% de los susceptibles restantes
   └── SimulacionService                  ← loop de turnos:
         ├── ModeloSIRV                   ← propaga infección (sincrónica)
         ├── GestorEventos                ← dispara eventos por umbral
-        └── GraficoSimulacion            ← actualiza la vista (si activa)
+        └── GraficoSimulacion            ← actualiza la vista + barra de turno (si activa)
 
 Al terminar (modo comparativo):
   ├── CalculadorEstadisticas → métricas finales
   ├── AnalisisComparativo    → ranking por score compuesto
   ├── VentanaResultados / PanelEstadisticas → tabla + curva I(t) / ASCII
   └── GeneradorReportePDF / ExportadorResultados → PDF + TXT
+
+Modo experimento por lotes (ejecutarLote):
+  └── por cada estrategia × N grafos (semilla única) → IniciarSimulacionCommand.ejecutar
+        └── AgregadorLote → promedios por estrategia + victorias por corrida
+              └── VentanaResultadosLote → tabla promedio + ranking + curva I(t) promedio
 ```
 
 ---
@@ -327,6 +358,7 @@ Al terminar (modo comparativo):
 | v5 | 2026-05-17 | 6ª estrategia BFS Ponderado, reporte PDF con JFreeChart, análisis cuantitativo con score compuesto, mejora visual GraphStream. |
 | v6 | 2026-05-17 | Comparativo con `JTabbedPane` de 6 pestañas, modo embebido en `GraficoSimulacion`. |
 | v7 | 2026-05-22 | Interfaz Swing completa con FlatDarkLaf (4 ventanas nuevas). Refinamiento visual integral del `GeneradorReportePDF`. Consola disponible vía `--consola` o headless. |
+| v8 | 2026-05-23 | Comparación justa: paciente cero (15% de la población) fijado **antes** de vacunar, idéntico para las 6 estrategias. Barra de turno con conteo SIRV bajo el grafo. Nuevo **modo por lotes**: N grafos distintos por estrategia con comparación promedio + acumulada (`AgregadorLote`, `ResultadoLoteDto`, `VentanaResultadosLote`, `ModoSimulacion`). |
 
 ---
 
@@ -337,5 +369,5 @@ La carpeta `src/main/java/Context/` contiene el diseño detallado del proyecto:
 - `01_contexto_proyecto.md` — Contexto académico, problema y objetivos.
 - `02_planificacion_tecnica.md` — Arquitectura por capas, responsabilidades archivo a archivo.
 - `03_modelo_matematico.md` — Formalización del grafo, SIRV, estrategias e hipótesis.
-- `04_estructura_creada.md` — Historial de cambios (v1 → v7) y detalle de implementación.
+- `04_estructura_creada.md` — Historial de cambios (v1 → v8) y detalle de implementación.
 - `05_grafos_y_algoritmos.md` — Explicación técnica completa de los algoritmos y la estructura del grafo.

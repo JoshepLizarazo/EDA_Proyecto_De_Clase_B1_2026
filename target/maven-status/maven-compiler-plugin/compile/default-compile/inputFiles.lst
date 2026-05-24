@@ -2,6 +2,7 @@
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/application/command/AplicarVacunacionCommand.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/application/command/IniciarSimulacionCommand.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/application/dto/ConfiguracionDto.java
+/home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/application/dto/ResultadoLoteDto.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/application/dto/ResultadoSimulacionDto.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/application/service/SimulacionService.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/application/service/VacunacionService.java
@@ -25,6 +26,7 @@
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/infrastructure/persistence/ExportadorResultados.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/infrastructure/persistence/GeneradorReportePDF.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/infrastructure/persistence/RedMemoryRepository.java
+/home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/infrastructure/util/AgregadorLote.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/infrastructure/util/AnalisisComparativo.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/infrastructure/util/CalculadorEstadisticas.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/infrastructure/util/GeneradorPoblacion.java
@@ -32,8 +34,10 @@
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/DialogoProgreso.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/GraficoSimulacion.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/Main.java
+/home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/ModoSimulacion.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/PanelEstadisticas.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/VentanaComparativaTabs.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/VentanaConfiguracion.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/VentanaMenuPrincipal.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/VentanaResultados.java
+/home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/presentation/VentanaResultadosLote.java

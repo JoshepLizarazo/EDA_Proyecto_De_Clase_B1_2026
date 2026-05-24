@@ -13,6 +13,9 @@ import java.util.concurrent.ThreadLocalRandom;
  */
 public class ConfiguracionDto {
 
+    /** Fracción de la población que arranca infectada (paciente cero). */
+    public static final double FRACCION_INFECTADOS_INICIALES = 0.15;
+
     private int tamanoRed;
     private int turnosMaximos;
     private EstrategiaVacunacion estrategia;
@@ -33,7 +36,7 @@ public class ConfiguracionDto {
         semillaAleatoria      = ThreadLocalRandom.current().nextLong(); // automática
         probInfeccionBase     = 0.20;
         diasRecuperacion      = 7;
-        cantidadPacientesCero = 5;
+        cantidadPacientesCero = calcularInfectadosIniciales(tamanoRed);
         usarCSV               = false;
         archivoPersonas       = "data/personas_red1.csv";
         archivoContactos      = "data/contactos_red1.csv";
@@ -58,7 +61,20 @@ public class ConfiguracionDto {
 
     // ── Setters ────────────────────────────────────────────────────────────────
 
-    public void setTamanoRed(int v)                      { this.tamanoRed = v; }
+    /**
+     * Al fijar el tamaño de red se recalcula el paciente cero al 15% de la población,
+     * de modo que tanto la UI Swing como la consola y el comparativo lo apliquen sin
+     * duplicar la regla. Para forzar un valor distinto, llamar a
+     * {@link #setCantidadPacientesCero(int)} después de este método.
+     */
+    public void setTamanoRed(int v) {
+        this.tamanoRed = v;
+        this.cantidadPacientesCero = calcularInfectadosIniciales(v);
+    }
+
+    private static int calcularInfectadosIniciales(int n) {
+        return Math.max(1, (int) Math.round(FRACCION_INFECTADOS_INICIALES * n));
+    }
     public void setTurnosMaximos(int v)                  { this.turnosMaximos = v; }
     public void setEstrategia(EstrategiaVacunacion v)    { this.estrategia = v; }
     public void setSemillaAleatoria(long v)              { this.semillaAleatoria = v; }

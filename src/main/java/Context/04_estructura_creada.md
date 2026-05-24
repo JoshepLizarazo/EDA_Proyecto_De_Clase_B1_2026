@@ -1,6 +1,6 @@
 # Estructura del Proyecto — Cambios Aplicados
 
-**Última actualización:** 2026-05-22
+**Última actualización:** 2026-05-23
 
 ---
 
@@ -15,6 +15,7 @@
 | v5 | 2026-05-17 | Simplificación del modelo (sin nombre, sin semilla manual) + 6ª estrategia BFS Ponderado + reporte PDF con gráficos JFreeChart + análisis cuantitativo del ganador + mejora visual GraphStream. Ver detalle abajo. |
 | v6 | 2026-05-17 | Reversión del estilo visual de GraphStream a la versión previa (la nueva versión introducía bugs con la leyenda flotante y el título dinámico). Nuevo flujo del comparativo con `JTabbedPane` de 6 pestañas (una por estrategia). Modo individual ya no ofrece exportar PDF. Ver detalle abajo. |
 | v7 | 2026-05-22 | Interfaz gráfica Swing completa con FlatDarkLaf — 4 ventanas nuevas que reemplazan al menú por consola como modo por defecto. Refinamiento visual integral del `GeneradorReportePDF` (paleta unificada, hero banner, tabla zebra con ganador destacado, score apilado). La consola sigue disponible vía `--consola` o headless. Ver detalle abajo. |
+| v8 | 2026-05-23 | Comparación justa (paciente cero al 15% fijado antes de vacunar, idéntico para las 6 estrategias), barra de turno con conteo SIRV bajo el grafo y nuevo modo por lotes (N grafos distintos por estrategia, comparación promedio + acumulada). Ver detalle abajo. |
 
 ---
 
@@ -818,3 +819,114 @@ revisión visual no encontró bugs de renderizado. Observaciones menores que
   porque la fuente Helvetica embebida en OpenPDF no garantiza todos los
   glifos de iconos. Decisión intencional, no es un bug.
 - `_smoketest/PdfSmoke.java` debe eliminarse antes de la entrega final.
+
+---
+
+## v8 — Comparación justa, barra de turno y modo por lotes (2026-05-23)
+
+Tres mejoras pedidas por el equipo: que la comparación entre estrategias parta
+de condiciones idénticas, que el grafo muestre el turno en curso, y un tercer
+modo de análisis estadístico sobre muchos grafos.
+
+### 1. Comparación justa — paciente cero antes de vacunar + 15% de infectados
+
+**Problema previo.** En `IniciarSimulacionCommand` se vacunaba PRIMERO y luego se
+elegía el paciente cero sobre los susceptibles restantes. Como cada estrategia
+vacuna nodos distintos, el conjunto de susceptibles cambiaba y, aun con la misma
+semilla, los infectados iniciales terminaban siendo distintos por estrategia → la
+comparación no era justa.
+
+**Cambio 1a — orden.** Ahora `setearPacienteCero(...)` se ejecuta **antes** de
+`vacunacionCommand.ejecutar(...)` en los métodos `ejecutar` y `ejecutarConTab`. El
+paciente cero se elige sobre la población completa e idéntica (misma red + misma
+semilla) → las 6 estrategias arrancan con exactamente los mismos infectados. Como
+todos los algoritmos de vacunación filtran por `SUSCEPTIBLE`, los infectados quedan
+excluidos automáticamente (nunca se vacuna a un nodo ya infectado).
+
+**Cambio 1b — 15% de infectados iniciales.** `ConfiguracionDto.setTamanoRed(N)`
+recalcula `cantidadPacientesCero = round(0.15 × N)` (constante
+`FRACCION_INFECTADOS_INICIALES = 0.15`). Al centralizarlo en el setter, tanto la UI
+Swing como la consola y el comparativo aplican la regla sin duplicarla. Con N=80 →
+12 infectados; N=300 → 45. La cuota de vacunación (20%) se calcula sobre los
+susceptibles **restantes** tras fijar el paciente cero.
+
+- Archivos: `application/command/IniciarSimulacionCommand.java`,
+  `application/dto/ConfiguracionDto.java`.
+
+### 2. Barra de turno con conteo SIRV bajo el grafo
+
+`GraficoSimulacion` ahora envuelve la vista de GraphStream en un `JPanel`
+(`BorderLayout`) con un `JLabel` al sur que muestra
+`Turno N      S: ..  I: ..  R: ..  V: ..`, actualizado en `actualizarTurno(...)`
+vía `SwingUtilities.invokeLater` (la simulación corre en un hilo de fondo).
+
+- `inicializarEmbebido(red)` devuelve ese wrapper → el contador aparece en cada
+  pestaña del comparativo.
+- `inicializar(red)` (modo individual) construye su propio `JFrame` con el mismo
+  wrapper en lugar de `graph.display()`, para mostrar también la barra de turno.
+- Archivo: `presentation/GraficoSimulacion.java`.
+
+### 3. Tercer modo — experimento por lotes (N grafos distintos por estrategia)
+
+Nuevo modo que evalúa cada estrategia sobre **N grafos distintos e
+independientes** y promedia los resultados. No hay animación (es cómputo puro).
+
+**Semillas.** Cada par (estrategia `s`, corrida `i`) usa una semilla única
+`base + s·N + i`, por lo que un `x100` genera 600 grafos diferentes; ninguno se
+comparte entre estrategias ni entre corridas.
+
+**Orquestación.** `IniciarSimulacionCommand.ejecutarLote(config, nGrafos, progreso)`
+recorre las 6 estrategias × N grafos, creando un command por corrida (para ligar
+generación, vacunación aleatoria y paciente cero a la semilla del grafo) y
+reportando avance vía la interfaz funcional `ProgresoLote`.
+
+**Agregación.** `infrastructure/util/AgregadorLote`:
+- Promedia las métricas de las N corridas de cada estrategia (pico, turno-pico,
+  duración, recuperados, vacunados, R0) y construye una curva I(t) promedio.
+- Cuenta **victorias**: por cada índice de corrida rankea las estrategias con
+  `AnalisisComparativo` y suma una victoria a la mejor (lectura "acumulada",
+  estimación Monte Carlo de qué tan seguido cada estrategia es la mejor).
+- Empaqueta todo en `application/dto/ResultadoLoteDto`.
+
+**Veredicto (promedio + acumulado).** Sobre los 6 promedios se aplica el mismo
+score compuesto del comparativo; el ranking por score promedio es el titular y la
+columna de victorias corrobora el resultado.
+
+**UI.**
+- `presentation/ModoSimulacion` (enum): `INDIVIDUAL`, `COMPARATIVO`, `LOTE`.
+- `VentanaMenuPrincipal`: tercer `JRadioButton` + flujo `ejecutarLote` en un
+  `SwingWorker` que devuelve `ResultadoLoteDto`.
+- `VentanaConfiguracion`: ahora recibe `ModoSimulacion`; muestra un `JSpinner`
+  "Grafos por estrategia" (default 10) solo en modo lote; oculta visualización y
+  CSV en lote (la carga CSV daría siempre la misma red).
+- `VentanaResultadosLote`: tabla de métricas promedio + victorias, ranking por
+  score compuesto promedio, curva I(t) promedio y export TXT/PDF (reutiliza
+  `ExportadorResultados` y `GeneradorReportePDF` sobre los promedios).
+- `DialogoProgreso`: nuevo `actualizar(completadas, total, detalle)` que pasa la
+  barra a modo determinado ("grafo X de N").
+
+### 4. Archivos creados / modificados en v8
+
+#### Creados
+- `src/main/java/presentation/ModoSimulacion.java`
+- `src/main/java/presentation/VentanaResultadosLote.java`
+- `src/main/java/application/dto/ResultadoLoteDto.java`
+- `src/main/java/infrastructure/util/AgregadorLote.java`
+
+#### Modificados
+- `src/main/java/application/command/IniciarSimulacionCommand.java` (orden paciente
+  cero / vacunación + `ejecutarLote` + `ProgresoLote`)
+- `src/main/java/application/dto/ConfiguracionDto.java` (paciente cero = 15%)
+- `src/main/java/presentation/GraficoSimulacion.java` (barra de turno)
+- `src/main/java/presentation/VentanaConfiguracion.java` (modo + spinner de grafos)
+- `src/main/java/presentation/VentanaMenuPrincipal.java` (tercer modo + flujo lote)
+- `src/main/java/presentation/DialogoProgreso.java` (progreso determinado)
+- `README.md`, `src/main/java/Context/01_contexto_proyecto.md`,
+  `src/main/java/Context/05_grafos_y_algoritmos.md`
+
+### 5. Pruebas realizadas
+- `mvn clean compile`: BUILD SUCCESS sin errores.
+- Smoke test headless (eliminado tras validar): paciente cero idéntico con la
+  misma semilla (12 nodos para N=80); lote de 3 grafos × 6 estrategias = 18
+  simulaciones, suma de victorias = 3 (una por grafo), vacunados ≈ 13 (20% de los
+  68 susceptibles tras fijar el 15% infectado).

@@ -1,12 +1,14 @@
 package application.command;
 
 import application.dto.ConfiguracionDto;
+import application.dto.ResultadoLoteDto;
 import application.dto.ResultadoSimulacionDto;
 import application.service.SimulacionService;
 import application.service.VacunacionService;
 import domain.model.RedSocial;
 import domain.value.EstrategiaVacunacion;
 import infrastructure.persistence.CargadorRedCSV;
+import infrastructure.util.AgregadorLote;
 import infrastructure.util.GeneradorPoblacion;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -51,8 +53,10 @@ public class IniciarSimulacionCommand {
         if (grafico != null) {
             grafico.inicializar(red);
         }
-        vacunacionCommand.ejecutar(red, config.getEstrategia());
+        // Paciente cero ANTES de vacunar: las 6 estrategias arrancan con los mismos
+        // infectados (misma red + misma semilla) y nunca se vacuna a un nodo ya infectado.
         red.setearPacienteCero(config.getCantidadPacientesCero(), new Random(config.getSemillaAleatoria() + 1));
+        vacunacionCommand.ejecutar(red, config.getEstrategia());
         return simulacionService.ejecutar(red, config, grafico);
     }
 
@@ -85,6 +89,55 @@ public class IniciarSimulacionCommand {
         return resultados;
     }
 
+    // ── Experimento por lotes ──────────────────────────────────────────────────
+
+    /** Callback de avance del lote (corrida completadas / total) para refrescar la UI. */
+    @FunctionalInterface
+    public interface ProgresoLote {
+        void avance(int completadas, int total, String detalle);
+    }
+
+    /**
+     * Corre {@code nGrafos} grafos DISTINTOS por cada una de las 6 estrategias
+     * (6 × nGrafos simulaciones en total; ningún grafo se comparte) y agrega los
+     * resultados: promedia las métricas de cada estrategia y cuenta en cuántas
+     * corridas cada una obtuvo el mejor score compuesto.
+     *
+     * Cada corrida usa una semilla única {@code base + s*nGrafos + i}, por lo que
+     * x100 produce 600 grafos independientes. Sin visualización: es cómputo puro.
+     */
+    public ResultadoLoteDto ejecutarLote(ConfiguracionDto config, int nGrafos, ProgresoLote progreso) {
+        EstrategiaVacunacion[] estrategias = EstrategiaVacunacion.values();
+        int total  = estrategias.length * nGrafos;
+        int hechas = 0;
+        long base  = config.getSemillaAleatoria();
+
+        List<List<ResultadoSimulacionDto>> porEstrategia = new ArrayList<>();
+        for (int s = 0; s < estrategias.length; s++) {
+            List<ResultadoSimulacionDto> deEstrategia = new ArrayList<>();
+            for (int i = 0; i < nGrafos; i++) {
+                long seed = base + (long) s * nGrafos + i;   // único por (estrategia, corrida)
+
+                ConfiguracionDto cfg = clonar(config, estrategias[s]);
+                cfg.setSemillaAleatoria(seed);
+                cfg.setMostrarVisualizacion(false);
+
+                // Command propio por corrida: generación de red, vacunación aleatoria
+                // y paciente cero quedan ligados a la semilla de este grafo concreto.
+                IniciarSimulacionCommand cmd = new IniciarSimulacionCommand(seed);
+                deEstrategia.add(cmd.ejecutar(cfg, null));
+
+                hechas++;
+                if (progreso != null) {
+                    progreso.avance(hechas, total,
+                            String.format("[%s]  grafo %d / %d", estrategias[s], i + 1, nGrafos));
+                }
+            }
+            porEstrategia.add(deEstrategia);
+        }
+        return new AgregadorLote().agregar(porEstrategia, nGrafos);
+    }
+
     // ── Ejecución con vista embebida en una pestaña ───────────────────────────
 
     private ResultadoSimulacionDto ejecutarConTab(ConfiguracionDto config,
@@ -97,9 +150,10 @@ public class IniciarSimulacionCommand {
             ventana.agregarTab(config.getEstrategia().name(), vista);
         }
 
-        vacunacionCommand.ejecutar(red, config.getEstrategia());
+        // Paciente cero ANTES de vacunar (ver ejecutar): comparación justa entre estrategias.
         red.setearPacienteCero(config.getCantidadPacientesCero(),
                 new Random(config.getSemillaAleatoria() + 1));
+        vacunacionCommand.ejecutar(red, config.getEstrategia());
         return simulacionService.ejecutar(red, config, grafico);
     }
 
