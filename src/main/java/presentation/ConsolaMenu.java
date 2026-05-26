@@ -41,14 +41,16 @@ public class ConsolaMenu {
             System.out.println("╠════════════════════════════════╣");
             System.out.println("║ 1. Simulación individual       ║");
             System.out.println("║ 2. Comparativo 6 estrategias   ║");
-            System.out.println("║ 3. Salir                       ║");
+            System.out.println("║ 3. Construcción visual red     ║");
+            System.out.println("║ 4. Salir                       ║");
             System.out.println("╚════════════════════════════════╝");
             System.out.print("Opción: ");
 
             switch (leerInt()) {
                 case 1 -> ejecutarIndividual();
                 case 2 -> ejecutarComparativo();
-                case 3 -> salir = true;
+                case 3 -> ejecutarConstruccionVisual();
+                case 4 -> salir = true;
                 case -1 -> salir = true; // EOF (piped stdin or IDE close)
                 default -> System.out.println("  Opción inválida.");
             }
@@ -225,6 +227,28 @@ public class ConsolaMenu {
             String s = sc.nextLine().trim();
             return s.isEmpty() ? def : Integer.parseInt(s);
         } catch (Exception e) { return def; }
+    }
+
+    private void ejecutarConstruccionVisual() {
+        System.out.println("\n── Construcción Visual de la Red ──");
+        System.out.println("Tamaño de red (para ver el paso a paso conviene poca):");
+        System.out.println("  1. Demo (~25 nodos)");
+        System.out.println("  2. Pequeña (~80 nodos)");
+        System.out.println("  3. Personalizado");
+        System.out.print("Opción [1]: ");
+        int tamano;
+        switch (leerIntDefault(1)) {
+            case 2 -> tamano = 80;
+            case 3 -> { System.out.print("N personas: "); tamano = Math.max(10, leerInt()); }
+            default -> tamano = 25;
+        }
+        System.out.print("Pausa entre fases en ms [600]: ");
+        int pausa = Math.max(200, leerIntDefault(600));
+
+        long semilla = new java.util.Random().nextLong();
+        System.out.println("\nAbriendo ventana de construcción visual...");
+        new VisualizadorConstruccionRed().visualizar(tamano, semilla, pausa);
+        System.out.println("  (ventana cerrada)");
     }
 
     // ── Auxiliares ────────────────────────────────────────────────────────────

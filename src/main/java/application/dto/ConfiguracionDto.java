@@ -14,7 +14,7 @@ import java.util.concurrent.ThreadLocalRandom;
 public class ConfiguracionDto {
 
     /** Fracción de la población que arranca infectada (paciente cero). */
-    public static final double FRACCION_INFECTADOS_INICIALES = 0.15;
+    public static final double FRACCION_INFECTADOS_INICIALES = 0.05;
 
     private int tamanoRed;
     private int turnosMaximos;
@@ -62,7 +62,7 @@ public class ConfiguracionDto {
     // ── Setters ────────────────────────────────────────────────────────────────
 
     /**
-     * Al fijar el tamaño de red se recalcula el paciente cero al 15% de la población,
+     * Al fijar el tamaño de red se recalcula el paciente cero al 5% de la población,
      * de modo que tanto la UI Swing como la consola y el comparativo lo apliquen sin
      * duplicar la regla. Para forzar un valor distinto, llamar a
      * {@link #setCantidadPacientesCero(int)} después de este método.

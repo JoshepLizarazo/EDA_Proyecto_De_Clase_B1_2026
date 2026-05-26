@@ -46,9 +46,10 @@ public class VentanaConfiguracion extends JDialog {
     private final JTextField        txtPersonas    = new JTextField("80");
     private final JComboBox<EstrategiaVacunacion> cbEstrategia =
             new JComboBox<>(EstrategiaVacunacion.values());
-    private final JSpinner          spGrafos       = new JSpinner(new SpinnerNumberModel(10, 2, 1000, 1));
+    private final JSpinner          spGrafos       = new JSpinner(new SpinnerNumberModel(10, 2, Integer.MAX_VALUE, 1));
     private final JSpinner          spTurnos       = new JSpinner(new SpinnerNumberModel(60, 1, 9999, 1));
     private final JSpinner          spRecuperacion = new JSpinner(new SpinnerNumberModel(7,  1, 365,  1));
+    private final JSpinner          spPausaFases   = new JSpinner(new SpinnerNumberModel(600, 200, 10000, 100));
     private final JCheckBox         cbVisualizacion = new JCheckBox("Mostrar visualización GraphStream");
     private final JCheckBox         cbCSV           = new JCheckBox("Cargar red desde archivos CSV");
 
@@ -78,9 +79,10 @@ public class VentanaConfiguracion extends JDialog {
 
     private JLabel crearTitulo() {
         String texto = switch (modo) {
-            case INDIVIDUAL  -> "Configura tu simulación individual";
-            case COMPARATIVO -> "Configura el comparativo de 6 estrategias";
-            case LOTE        -> "Configura el experimento por lotes";
+            case INDIVIDUAL          -> "Configura tu simulación individual";
+            case COMPARATIVO         -> "Configura el comparativo de 6 estrategias";
+            case LOTE                -> "Configura el experimento por lotes";
+            case CONSTRUCCION_VISUAL -> "Configura la construcción visual de la red";
         };
         JLabel lbl = new JLabel(texto, JLabel.CENTER);
         lbl.setFont(lbl.getFont().deriveFont(Font.BOLD, 14f));
@@ -100,19 +102,26 @@ public class VentanaConfiguracion extends JDialog {
 
         // Tamaño de red
         agregarFila(form, gbc, row++, "Tamaño de red:", cbTamano);
-        cbTamano.setSelectedIndex(0);
         cbTamano.addItemListener(e -> {
             if (e.getStateChange() == ItemEvent.SELECTED) {
                 actualizarVisibilidadPersonas();
             }
         });
         agregarFila(form, gbc, row++, "N personas (si personalizado):", txtPersonas);
-        txtPersonas.setEnabled(false);
+        // Para el paso a paso conviene poca población: arranca en 25 personalizado.
+        if (modo == ModoSimulacion.CONSTRUCCION_VISUAL) {
+            cbTamano.setSelectedIndex(2);
+            txtPersonas.setText("25");
+            txtPersonas.setEnabled(true);
+        } else {
+            cbTamano.setSelectedIndex(0);
+            txtPersonas.setEnabled(false);
+        }
 
-        // Estrategia (solo individual) — en comparativo y lote se corren las 6
+        // Estrategia — solo individual; no aplica en construcción visual
         if (modo == ModoSimulacion.INDIVIDUAL) {
             agregarFila(form, gbc, row++, "Estrategia de vacunación:", cbEstrategia);
-        } else {
+        } else if (modo != ModoSimulacion.CONSTRUCCION_VISUAL) {
             String txt = (modo == ModoSimulacion.LOTE)
                     ? "(Cada estrategia corre N grafos distintos)"
                     : "(Se ejecutarán las 6 estrategias automáticamente)";
@@ -129,15 +138,19 @@ public class VentanaConfiguracion extends JDialog {
             agregarFila(form, gbc, row++, "Grafos por estrategia:", spGrafos);
         }
 
-        // Turnos máximos
-        agregarFila(form, gbc, row++, "Turnos máximos:", spTurnos);
+        // Pausa entre fases (solo construcción visual)
+        if (modo == ModoSimulacion.CONSTRUCCION_VISUAL) {
+            agregarFila(form, gbc, row++, "Pausa entre fases (ms):", spPausaFases);
+        }
 
-        // Días de recuperación
-        agregarFila(form, gbc, row++, "Días de recuperación:", spRecuperacion);
+        // Turnos y recuperación no aplican en construcción visual
+        if (modo != ModoSimulacion.CONSTRUCCION_VISUAL) {
+            agregarFila(form, gbc, row++, "Turnos máximos:", spTurnos);
+            agregarFila(form, gbc, row++, "Días de recuperación:", spRecuperacion);
+        }
 
-        // Visualización y CSV no aplican en lote (N×6 simulaciones sin animación,
-        // y la carga CSV daría siempre la misma red en vez de N grafos distintos).
-        if (modo != ModoSimulacion.LOTE) {
+        // Visualización y CSV no aplican en lote ni en construcción visual
+        if (modo != ModoSimulacion.LOTE && modo != ModoSimulacion.CONSTRUCCION_VISUAL) {
             cbVisualizacion.setSelected(true);
             gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
             form.add(cbVisualizacion, gbc);
@@ -204,7 +217,7 @@ public class VentanaConfiguracion extends JDialog {
             }
             default -> tamano = 80;
         }
-        cfg.setTamanoRed(tamano);   // recalcula el paciente cero al 15% de la población
+        cfg.setTamanoRed(tamano);   // recalcula el paciente cero al 5% de la población
 
         if (modo == ModoSimulacion.INDIVIDUAL) {
             cfg.setEstrategia((EstrategiaVacunacion) cbEstrategia.getSelectedItem());
@@ -224,5 +237,10 @@ public class VentanaConfiguracion extends JDialog {
     /** Número de grafos por estrategia (solo relevante en modo lote). */
     public int getNGrafos() {
         return (Integer) spGrafos.getValue();
+    }
+
+    /** Pausa en ms entre fases (solo relevante en modo construcción visual). */
+    public int getPausaFasesMs() {
+        return (Integer) spPausaFases.getValue();
     }
 }

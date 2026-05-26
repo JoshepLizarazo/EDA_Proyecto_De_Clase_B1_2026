@@ -3,6 +3,7 @@ infrastructure/util/AnalisisComparativo$ScoreEstrategia.class
 presentation/VentanaMenuPrincipal.class
 domain/value/EstrategiaVacunacion.class
 domain/algoritmo/VacunacionHibrida.class
+presentation/VentanaMenuPrincipal$4.class
 presentation/VentanaResultados$1.class
 presentation/VentanaResultadosLote$RendererGanador.class
 infrastructure/persistence/CargadorRedCSV.class
@@ -30,7 +31,9 @@ application/command/IniciarSimulacionCommand.class
 presentation/VentanaConfiguracion.class
 presentation/DialogoProgreso.class
 application/command/AplicarVacunacionCommand.class
+infrastructure/util/GeneradorPoblacion$FaseListener.class
 infrastructure/util/GeneradorPoblacion.class
+presentation/VisualizadorConstruccionRed.class
 infrastructure/persistence/RedMemoryRepository.class
 domain/algoritmo/VacunacionBetweenness.class
 presentation/VentanaResultados.class

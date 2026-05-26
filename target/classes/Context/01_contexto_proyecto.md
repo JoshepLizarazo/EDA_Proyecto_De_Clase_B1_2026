@@ -32,7 +32,7 @@ Las epidemias se propagan de manera distinta según la estructura social de una 
 
 A partir de este modelo, se evalúa qué estrategia de vacunación —con recursos limitados al **20% de la población**— logra contener el brote de forma más eficaz, comparando cinco enfoques distintos.
 
-Para que la comparación sea **justa**, el brote arranca con un **5% de infectados iniciales** que son los mismos para todas las estrategias (se fijan antes de vacunar), y la vacunación del 20% se aplica sobre los susceptibles restantes. Además del modo individual y del comparativo (las estrategias sobre una misma red), un **modo por lotes** corre N grafos distintos por estrategia y promedia los resultados para un veredicto estadísticamente más robusto, y un **modo de construcción visual** que muestra paso a paso (fase por fase, arista por arista) cómo se arma la red social antes de simular.
+Para que la comparación sea **justa**, el brote arranca con un **15% de infectados iniciales** que son los mismos para todas las estrategias (se fijan antes de vacunar), y la vacunación del 20% se aplica sobre los susceptibles restantes. Además del modo individual y del comparativo (las estrategias sobre una misma red), un **modo por lotes** corre N grafos distintos por estrategia y promedia los resultados para un veredicto estadísticamente más robusto.
 
 ---
 
