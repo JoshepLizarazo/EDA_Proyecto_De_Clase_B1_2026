@@ -1,6 +1,6 @@
 # Estructura del Proyecto — Cambios Aplicados
 
-**Última actualización:** 2026-05-23
+**Última actualización:** 2026-05-26
 
 ---
 
@@ -17,6 +17,7 @@
 | v7 | 2026-05-22 | Interfaz gráfica Swing completa con FlatDarkLaf — 4 ventanas nuevas que reemplazan al menú por consola como modo por defecto. Refinamiento visual integral del `GeneradorReportePDF` (paleta unificada, hero banner, tabla zebra con ganador destacado, score apilado). La consola sigue disponible vía `--consola` o headless. Ver detalle abajo. |
 | v8 | 2026-05-23 | Comparación justa (paciente cero al 15% fijado antes de vacunar, idéntico para las 6 estrategias), barra de turno con conteo SIRV bajo el grafo y nuevo modo por lotes (N grafos distintos por estrategia, comparación promedio + acumulada). Ver detalle abajo. |
 | v9 | 2026-05-23 | Glosario de métricas en los PDFs: ambos generadores (`GeneradorReportePDF` y `GeneradorReporteLotePDF`) agregan una página final "Glosario de métricas — Guía de interpretación" que explica cada variable (S, I, R, V, pico, t-pico, duración, afectados, contención %, R0, score compuesto, victorias), qué mide y qué valores son favorables. Ver detalle abajo. |
+| v10 | 2026-05-26 | Infectados iniciales 15% → **5%** de la población. Nuevo **modo "Construcción visual de la red"** (4ª opción) que anima la generación fase por fase y arista por arista (`VisualizadorConstruccionRed` + `GeneradorPoblacion.generarConFases`). Límite del spinner "Grafos por estrategia" del modo lote removido (antes tope 1000, ahora ilimitado). Ver detalle abajo. |
 
 ---
 
@@ -1005,3 +1006,87 @@ respectivamente.
 
 ### 4. Pruebas realizadas
 - `mvn compile`: BUILD SUCCESS sin errores ni warnings de compilación.
+
+---
+
+## v10 — Infectados al 5%, modo de construcción visual y lote sin tope (2026-05-26)
+
+Tres cambios pedidos por el equipo: bajar la carga inicial del brote, agregar una
+forma de *ver* cómo se construye la red, y permitir lotes arbitrariamente grandes.
+
+### 1. Infectados iniciales 15% → 5%
+
+`ConfiguracionDto.FRACCION_INFECTADOS_INICIALES` pasa de `0.15` a `0.05`. Como el
+cálculo está centralizado en `setTamanoRed(N)` (`cantidadPacientesCero =
+round(0.05 × N)`), el cambio aplica de forma uniforme a la UI Swing, la consola,
+el comparativo y el lote. Con N=80 → 4 infectados; N=300 → 15. La cuota de
+vacunación (20%) sigue calculándose sobre los susceptibles restantes.
+
+- Archivo: `application/dto/ConfiguracionDto.java`.
+
+### 2. Nuevo modo — Construcción visual de la red (paso a paso)
+
+Cuarto modo del menú. Abre una ventana GraphStream que **construye la red en vivo**,
+revelando primero los nodos uno a uno y luego, fase por fase, cada arista
+individualmente con un color distinto:
+
+| Fase | Qué aparece | Color |
+|---|---|---|
+| 1 | Nodos (personas) | Azul |
+| 2 | Clusters familiares (cliques) | Rojo |
+| 3 | Vecindarios | Naranja |
+| 4 | Hubs comunitarios | Morado |
+| 5 | Conexiones long-range (small-world) | Gris |
+| 6 | Aristas puente de conectividad | Verde |
+
+Los nodos crecen conforme acumulan grado. La velocidad de revelado se autoajusta
+al número de elementos de cada fase (fases densas van más rápido), con una pausa
+configurable entre fases. Una leyenda superior identifica los colores y una barra
+inferior muestra la fase actual y el conteo de aristas.
+
+**Generador con fases.** `GeneradorPoblacion` expone la interfaz funcional
+`FaseListener` y el método `generarConFases(tamano, semilla, listener)`, que invoca
+al listener tras cada una de las 6 fases. El antiguo `generar(tamano, semilla)`
+ahora delega en `generarConFases(..., null)` — sin cambios para el resto del
+código.
+
+**UI.**
+- `presentation/ModoSimulacion` (enum): nueva constante `CONSTRUCCION_VISUAL`.
+- `VentanaMenuPrincipal`: 4º `JRadioButton` + `ejecutarConstruccionVisual` en un
+  `SwingWorker`.
+- `VentanaConfiguracion`: en modo construcción muestra solo "Tamaño de red" y
+  "Pausa entre fases (ms)" (default 600); arranca en 25 personas (red pequeña
+  para apreciar el paso a paso); expone `getPausaFasesMs()`.
+- `ConsolaMenu`: nueva opción 3 "Construcción visual red" (Salir pasa a la 4).
+
+Para el detalle conceptual de las fases ver la sección 8 de
+`05_grafos_y_algoritmos.md`.
+
+### 3. Modo lote sin tope de grafos
+
+El `JSpinner` "Grafos por estrategia" tenía máximo 1000; ahora usa
+`Integer.MAX_VALUE` como tope. El usuario puede elegir cualquier N (el costo de
+cómputo crece como 6 × N simulaciones).
+
+- Archivo: `presentation/VentanaConfiguracion.java`.
+
+### 4. Archivos creados / modificados en v10
+
+#### Creados
+- `src/main/java/presentation/VisualizadorConstruccionRed.java`
+
+#### Modificados
+- `src/main/java/application/dto/ConfiguracionDto.java` (infectados 5%)
+- `src/main/java/infrastructure/util/GeneradorPoblacion.java` (`FaseListener` +
+  `generarConFases`)
+- `src/main/java/presentation/ModoSimulacion.java` (`CONSTRUCCION_VISUAL`)
+- `src/main/java/presentation/VentanaConfiguracion.java` (modo construcción +
+  pausa + spinner de lote sin tope)
+- `src/main/java/presentation/VentanaMenuPrincipal.java` (4º modo)
+- `src/main/java/presentation/ConsolaMenu.java` (opción 3 construcción visual)
+- `src/main/java/Context/01_contexto_proyecto.md`,
+  `src/main/java/Context/04_estructura_creada.md` (este archivo),
+  `src/main/java/Context/05_grafos_y_algoritmos.md`
+
+### 5. Pruebas realizadas
+- `mvn compile`: BUILD SUCCESS sin errores.

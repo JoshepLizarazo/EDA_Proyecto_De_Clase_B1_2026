@@ -32,7 +32,7 @@ Las epidemias se propagan de manera distinta según la estructura social de una 
 
 A partir de este modelo, se evalúa qué estrategia de vacunación —con recursos limitados al **20% de la población**— logra contener el brote de forma más eficaz, comparando cinco enfoques distintos.
 
-Para que la comparación sea **justa**, el brote arranca con un **15% de infectados iniciales** que son los mismos para todas las estrategias (se fijan antes de vacunar), y la vacunación del 20% se aplica sobre los susceptibles restantes. Además del modo individual y del comparativo (las estrategias sobre una misma red), un **modo por lotes** corre N grafos distintos por estrategia y promedia los resultados para un veredicto estadísticamente más robusto.
+Para que la comparación sea **justa**, el brote arranca con un **5% de infectados iniciales** que son los mismos para todas las estrategias (se fijan antes de vacunar), y la vacunación del 20% se aplica sobre los susceptibles restantes. Además del modo individual y del comparativo (las estrategias sobre una misma red), un **modo por lotes** corre N grafos distintos por estrategia y promedia los resultados para un veredicto estadísticamente más robusto, y un **modo de construcción visual** que muestra paso a paso (fase por fase, arista por arista) cómo se arma la red social antes de simular.
 
 ---
 
@@ -45,10 +45,10 @@ Diseñar e implementar en Java un simulador de propagación epidémica sobre una
 - Implementar un grafo ponderado y dirigido con listas de adyacencia usando `HashMap<Persona, List<Contacto>>`.
 - Modelar la propagación mediante el modelo SIRV (Susceptible → Infectado → Recuperado → Vacunado).
 - Generar automáticamente una población con distribución demográfica colombiana realista (edades, estratos socioeconómicos, ocupaciones).
-- Implementar cinco estrategias de vacunación: aleatoria, por hubs, por betweenness, dentro de comunidades e híbrida (aporte propio del equipo).
+- Implementar seis estrategias de vacunación: aleatoria, por hubs, por betweenness, dentro de comunidades, Dijkstra Ponderado e híbrida (aporte propio del equipo).
 - Incorporar un mecanismo de actualización dinámica de pesos en runtime mediante eventos automáticos por umbral de infectados.
 - Visualizar la propagación en tiempo real usando GraphStream, con nodos coloreados por estado SIRV.
-- Comparar estadísticamente las cinco estrategias y determinar la más efectiva.
+- Comparar estadísticamente las seis estrategias y determinar la más efectiva.
 
 ---
 
@@ -58,7 +58,7 @@ Diseñar e implementar en Java un simulador de propagación epidémica sobre una
 |---|---|
 | **Tipo** | Dirigido y ponderado |
 | **Estructura interna** | `HashMap<Persona, List<Contacto>>` |
-| **Nodo** | `Persona` — id, nombre, edad, estrato, ocupación, `EstadoSIRV` |
+| **Nodo** | `Persona` — id, edad, estrato, ocupación, `EstadoSIRV` |
 | **Arista** | `Contacto` — nodo origen, nodo destino, `probContagio` (peso) |
 | **Peso de arista** | Probabilidad de contagio entre dos personas (0.0 – 1.0) |
 | **Casos de prueba** | Dos grafos: red pequeña ~80 nodos y red grande ~300 nodos |

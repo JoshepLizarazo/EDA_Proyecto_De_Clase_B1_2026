@@ -45,10 +45,10 @@ Diseñar e implementar en Java un simulador de propagación epidémica sobre una
 - Implementar un grafo ponderado y dirigido con listas de adyacencia usando `HashMap<Persona, List<Contacto>>`.
 - Modelar la propagación mediante el modelo SIRV (Susceptible → Infectado → Recuperado → Vacunado).
 - Generar automáticamente una población con distribución demográfica colombiana realista (edades, estratos socioeconómicos, ocupaciones).
-- Implementar cinco estrategias de vacunación: aleatoria, por hubs, por betweenness, dentro de comunidades e híbrida (aporte propio del equipo).
+- Implementar seis estrategias de vacunación: aleatoria, por hubs, por betweenness, dentro de comunidades, Dijkstra Ponderado e híbrida (aporte propio del equipo).
 - Incorporar un mecanismo de actualización dinámica de pesos en runtime mediante eventos automáticos por umbral de infectados.
 - Visualizar la propagación en tiempo real usando GraphStream, con nodos coloreados por estado SIRV.
-- Comparar estadísticamente las cinco estrategias y determinar la más efectiva.
+- Comparar estadísticamente las seis estrategias y determinar la más efectiva.
 
 ---
 
@@ -58,7 +58,7 @@ Diseñar e implementar en Java un simulador de propagación epidémica sobre una
 |---|---|
 | **Tipo** | Dirigido y ponderado |
 | **Estructura interna** | `HashMap<Persona, List<Contacto>>` |
-| **Nodo** | `Persona` — id, nombre, edad, estrato, ocupación, `EstadoSIRV` |
+| **Nodo** | `Persona` — id, edad, estrato, ocupación, `EstadoSIRV` |
 | **Arista** | `Contacto` — nodo origen, nodo destino, `probContagio` (peso) |
 | **Peso de arista** | Probabilidad de contagio entre dos personas (0.0 – 1.0) |
 | **Casos de prueba** | Dos grafos: red pequeña ~80 nodos y red grande ~300 nodos |

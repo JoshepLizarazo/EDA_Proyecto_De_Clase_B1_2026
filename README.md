@@ -4,13 +4,15 @@ Proyecto académico de la asignatura **Estructuras de Datos y Análisis de Algor
 
 **Docente:** Laura Viviana Galvis Carreño | **Peso en la nota:** 20% del curso
 
+**Integrantes:** Joshep Jared Lizarazo Montero (2250150) | Juan Esteban Barajas Mantilla (2250183) | Juan Pablo Rueda Angarita (2250160)
+
 ---
 
 ## Demostración
 
-[![Demo en YouTube](https://img.youtube.com/vi/yjJLEvcspzw/0.jpg)](https://youtu.be/yjJLEvcspzw)
+[![Demo en YouTube](https://img.youtube.com/vi/WMGwWu-O2zY/0.jpg)](https://youtu.be/WMGwWu-O2zY)
 
-[Ver demo completa en YouTube](https://youtu.be/yjJLEvcspzw)
+[Ver demo completa en YouTube](https://youtu.be/WMGwWu-O2zY)
 
 ---
 
@@ -24,7 +26,7 @@ Es un simulador en **Java 17** que modela cómo una enfermedad se propaga a trav
 
 El objetivo central es **comparar seis estrategias de vacunación** bajo la restricción de que solo se puede vacunar al **20% de la población**, y determinar cuantitativamente cuál minimiza el impacto del brote.
 
-Para que la comparación sea **justa**, el brote arranca con un **15% de infectados iniciales fijos** (los mismos pacientes cero para las seis estrategias) y luego cada estrategia vacuna el 20% de los susceptibles restantes — así ninguna estrategia parte de una condición inicial distinta. Además del modo individual y del comparativo sobre una misma red, existe un **modo por lotes** que corre N grafos distintos por estrategia y promedia los resultados (ver §3).
+Para que la comparación sea **justa**, el brote arranca con un **5% de infectados iniciales fijos** (los mismos pacientes cero para las seis estrategias) y luego cada estrategia vacuna el 20% de los susceptibles restantes — así ninguna estrategia parte de una condición inicial distinta. Además del modo individual y del comparativo sobre una misma red, existe un **modo por lotes** que corre N grafos distintos por estrategia y promedia los resultados, y un **modo de construcción visual** que muestra paso a paso cómo se arma la red social (ver §3).
 
 ### Estrategias de vacunación implementadas
 
@@ -129,9 +131,9 @@ score = 0.30·norm_inv(picoMaximo) + 0.15·norm_inv(duracion)
 
 ---
 
-## 3. Interfaz gráfica (v7)
+## 3. Interfaz gráfica (v10)
 
-Desde la versión 7, el programa abre por defecto una **interfaz Swing oscura** con **FlatDarkLaf**. La consola sigue disponible como fallback.
+Desde la versión 7 el programa abre por defecto una **interfaz Swing oscura** con **FlatDarkLaf**. En v10 se incorporó el 4° modo de simulación (construcción visual). La consola sigue disponible como fallback.
 
 ### Modos de arranque
 
@@ -149,12 +151,13 @@ En entornos headless (CI, servidores sin pantalla), el programa detecta automát
 | **Individual** | Corre una sola estrategia (elegida por el usuario) con visualización GraphStream. |
 | **Comparativo** | Corre las 6 estrategias sobre la **misma red** (mismos infectados iniciales) y las muestra en pestañas. |
 | **Experimento por lotes** | Corre **N grafos distintos por estrategia** (6 × N grafos independientes), sin animación, y promedia los resultados. |
+| **Construcción visual** | Anima la generación de la red fase por fase y arista por arista, con un color distinto por fase: clusters familiares → vecindarios → hubs → conexiones long-range → puentes de conectividad. |
 
 ### Ventanas de la UI
 
 | Ventana | Descripción |
 |---|---|
-| `VentanaMenuPrincipal` | Ventana raíz. Banner azul con título, selección de modo (individual / comparativo / lotes) y botones Continuar/Salir. |
+| `VentanaMenuPrincipal` | Ventana raíz. Banner azul con título, selección de modo (individual / comparativo / lotes / construcción visual) y botones Continuar/Salir. |
 | `VentanaConfiguracion` | Modal con formulario: tamaño de red, estrategia (solo individual), grafos por estrategia (solo lotes), turnos, días de recuperación, visualización y carga desde CSV. |
 | `VentanaResultados` | Tabla de métricas con fila ganadora resaltada, ranking con score compuesto, curva I(t) con JFreeChart, y botones de exportación. |
 | `VentanaResultadosLote` | Resultados del lote: tabla de métricas **promedio** + victorias por estrategia, ranking por score compuesto promedio, curva I(t) promedio y exportación. |
@@ -162,7 +165,7 @@ En entornos headless (CI, servidores sin pantalla), el programa detecta automát
 
 ### Modo por lotes — comparación promedio + acumulada
 
-En el experimento por lotes, cada estrategia se evalúa sobre **N grafos distintos e independientes** (semilla única por cada par estrategia–corrida; un `x100` produce 600 grafos diferentes). Al terminar se reportan dos lecturas complementarias:
+En el experimento por lotes, cada estrategia se evalúa sobre **N grafos distintos e independientes** (semilla única por cada par estrategia–corrida; `N` es ahora ilimitado — el tope de 1000 fue removido en v10). Al terminar se reportan dos lecturas complementarias:
 
 - **Promedio**: se promedian las métricas de las N corridas de cada estrategia (pico, duración, afectados, contención, R0) y se rankea con el mismo score compuesto del comparativo.
 - **Acumulado (victorias)**: en cada corrida se rankean las estrategias por score y se cuenta una victoria para la mejor; el conteo final estima qué tan seguido cada estrategia resulta la mejor sobre grafos aleatorios.
@@ -214,8 +217,8 @@ Trabas_y_Grafos/
     │
     ├── presentation/              ← CAPA 1 — UI
     │   ├── Main.java                       ← Punto de entrada (Swing por defecto, consola con --consola)
-    │   ├── ModoSimulacion.java             ← enum {INDIVIDUAL, COMPARATIVO, LOTE}
-    │   ├── VentanaMenuPrincipal.java       ← Ventana raíz Swing (FlatDarkLaf, 3 modos)
+    │   ├── ModoSimulacion.java             ← enum {INDIVIDUAL, COMPARATIVO, LOTE, CONSTRUCCION_VISUAL}
+    │   ├── VentanaMenuPrincipal.java       ← Ventana raíz Swing (FlatDarkLaf, 4 modos)
     │   ├── VentanaConfiguracion.java       ← Formulario modal de configuración
     │   ├── VentanaResultados.java          ← Tabla de métricas + curva I(t) + exportación
     │   ├── VentanaResultadosLote.java      ← Resultados del lote (promedio + victorias)
@@ -223,6 +226,7 @@ Trabas_y_Grafos/
     │   ├── ConsolaMenu.java                ← Menú por consola (fallback / --consola)
     │   ├── GraficoSimulacion.java          ← Vista GraphStream + barra de turno (standalone + embebida)
     │   ├── VentanaComparativaTabs.java     ← JTabbedPane con las 6 simulaciones
+    │   ├── VisualizadorConstruccionRed.java ← Animación fase a fase de la generación de la red
     │   └── PanelEstadisticas.java          ← Curvas SIRV en ASCII
     │
     ├── application/               ← CAPA 2 — Servicios
@@ -230,7 +234,7 @@ Trabas_y_Grafos/
     │   │   ├── SimulacionService.java      ← Loop de turnos + historial
     │   │   └── VacunacionService.java      ← Switch por estrategia
     │   ├── dto/
-    │   │   ├── ConfiguracionDto.java       ← Entrada del usuario (paciente cero = 15%)
+    │   │   ├── ConfiguracionDto.java       ← Entrada del usuario (paciente cero = 5%)
     │   │   ├── ResultadoSimulacionDto.java ← Métricas finales
     │   │   └── ResultadoLoteDto.java       ← Promedios + victorias del experimento por lotes
     │   └── command/
@@ -302,9 +306,9 @@ mvn exec:java -Dexec.args="--consola"
 
 ### Desde la UI Swing
 
-1. Seleccionar modo: **individual** (una estrategia), **comparativo** (las 6 sobre la misma red) o **experimento por lotes** (N grafos distintos por estrategia).
-2. Configurar en el formulario: tamaño de red, estrategia (individual), grafos por estrategia (lotes), turnos, días de recuperación y si se desea visualización GraphStream.
-3. Opcionalmente cargar una red desde CSV (`data/`) — no aplica en modo lotes.
+1. Seleccionar modo: **individual** (una estrategia), **comparativo** (las 6 sobre la misma red), **experimento por lotes** (N grafos distintos por estrategia) o **construcción visual** (animación de la red formándose).
+2. Configurar en el formulario: tamaño de red, estrategia (individual), grafos por estrategia (lotes, sin límite), turnos, días de recuperación y si se desea visualización GraphStream.
+3. Opcionalmente cargar una red desde CSV (`data/`) — no aplica en modo lotes ni construcción visual.
 4. Al finalizar, exportar los resultados en **TXT**, **PDF** o ambos.
 
 ### Desde la consola (modo --consola o headless)
@@ -329,7 +333,7 @@ IniciarSimulacionCommand
   ├── GeneradorPoblacion (6 fases)       ← genera RedSocial colombiana
   │   ─ó ─
   │   CargadorRedCSV                     ← alternativa: red desde data/*.csv
-  ├── setearPacienteCero (15%)           ← infecta los mismos nodos antes de vacunar
+  ├── setearPacienteCero (5%)            ← infecta los mismos nodos antes de vacunar
   ├── VacunacionService                  ← vacuna el 20% de los susceptibles restantes
   └── SimulacionService                  ← loop de turnos:
         ├── ModeloSIRV                   ← propaga infección (sincrónica)
@@ -362,15 +366,45 @@ Modo experimento por lotes (ejecutarLote):
 | v7 | 2026-05-22 | Interfaz Swing completa con FlatDarkLaf (4 ventanas nuevas). Refinamiento visual integral del `GeneradorReportePDF`. Consola disponible vía `--consola` o headless. |
 | v8 | 2026-05-23 | Comparación justa: paciente cero (15% de la población) fijado **antes** de vacunar, idéntico para las 6 estrategias. Barra de turno con conteo SIRV bajo el grafo. Nuevo **modo por lotes**: N grafos distintos por estrategia con comparación promedio + acumulada (`AgregadorLote`, `ResultadoLoteDto`, `VentanaResultadosLote`, `ModoSimulacion`). |
 | v9 | 2026-05-23 | **Glosario de métricas** en ambos PDFs: página final "Guía de interpretación" que explica cada variable del informe (S, I, R, V, pico, t-pico, duración, afectados, contención %, R0, score compuesto, victorias), qué mide y qué valores son favorables. PDF individual pasa de 7 a 8 páginas. |
+| v10 | 2026-05-26 | **Infectados iniciales 15% → 5%** (brote más controlado al inicio). Nuevo **modo "Construcción visual de la red"** (4ª opción): anima la generación fase por fase, arista por arista, con un color distinto por fase. Límite del spinner "Grafos por estrategia" del modo lote removido (antes tope 1000, ahora ilimitado). |
 
 ---
 
-## 10. Documentación adicional
+## 10. Resultados experimentales
+
+Experimento por lotes ejecutado con **N = 300 nodos, 10 000 grafos por estrategia (60 000 simulaciones totales)**, `probBase = 0.20`, 7 días de recuperación, 50 turnos máximos, **15% de pacientes cero** (45 nodos), 20% vacunados. Generado el 2026-05-26.
+
+| Estrategia | Pico | t-Pico | Duración | Afectados | Contención % | R₀ | Victorias |
+|---|---|---|---|---|---|---|---|
+| **HUBS** ★ | **131** | 6 | **26** | **180** | **40,0 %** | **2,06** | **6 980 / 10 000** |
+| BETWEENNESS | 150 | 6 | 27 | 203 | 32,3 % | 2,12 | 1 405 / 10 000 |
+| Dijkstra Ponderado | 156 | 6 | 27 | 208 | 30,7 % | 2,15 | 760 / 10 000 |
+| HÍBRIDA | 159 | 6 | 27 | 212 | 29,3 % | 2,15 | 547 / 10 000 |
+| COMUNIDADES | 169 | 6 | 26 | 216 | 28,0 % | 2,16 | 291 / 10 000 |
+| ALEATORIA | 187 | 6 | 24 | 227 | 24,3 % | 2,23 | 17 / 10 000 |
+
+★ **Ganadora: HUBS** — score compuesto promedio 0,355 / 1,000 — 69,8 % de victorias.
+
+### Validación de hipótesis
+
+| H# | Hipótesis | Resultado |
+|---|---|---|
+| H1 | Hubs supera a Aleatoria en redes con hubs claros. | **Confirmada** — 40 % contención vs 24,3 %; 6 980 vs 17 victorias. |
+| H2 | Betweenness es más efectiva en redes con comunidades separadas. | **Confirmada parcialmente** — queda 2.° (1 405 victorias), superada por Hubs. |
+| H3 | Híbrida supera a Betweenness con disparidad de estratos. | **No confirmada** — Híbrida queda 4.° (547 victorias). |
+| H4 | Eventos por umbral tienen mayor impacto en redes densas (N=300). | **Confirmada** — CUARENTENA y LOCKDOWN se dispararon sistemáticamente antes. |
+| H5 | Aleatoria es comparable a Hubs en redes homogéneas. | **Refutada** — la red genera hubs pronunciados que hacen decisiva la diferencia. |
+| H6 | Comunidades supera a Aleatoria y Hubs con clusters densos. | **Parcialmente confirmada** — supera a Aleatoria pero queda 5.° en el ranking. |
+| H7 | Híbrida supera a Comunidades en redes grandes. | **Confirmada** — Híbrida (4.°, 547) supera a Comunidades (5.°, 291). |
+
+---
+
+## 11. Documentación adicional
 
 La carpeta `src/main/java/Context/` contiene el diseño detallado del proyecto:
 
 - `01_contexto_proyecto.md` — Contexto académico, problema y objetivos.
 - `02_planificacion_tecnica.md` — Arquitectura por capas, responsabilidades archivo a archivo.
 - `03_modelo_matematico.md` — Formalización del grafo, SIRV, estrategias e hipótesis.
-- `04_estructura_creada.md` — Historial de cambios (v1 → v9) y detalle de implementación.
+- `04_estructura_creada.md` — Historial de cambios (v1 → v10) y detalle de implementación.
 - `05_grafos_y_algoritmos.md` — Explicación técnica completa de los algoritmos y la estructura del grafo.

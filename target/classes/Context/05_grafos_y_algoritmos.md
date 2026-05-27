@@ -194,7 +194,7 @@ Esta es una de las partes más interesantes del modelo: **el grafo muta en tiemp
 
 Todas las estrategias vacunan exactamente el **20% de los nodos susceptibles** antes de que inicie el brote. La diferencia entre ellas es **qué nodos eligen** para vacunar, y eso depende de qué información del grafo usan.
 
-> **Comparación justa (v8).** El paciente cero (15% de la población) se fija
+> **Comparación justa (v8).** El paciente cero (5% de la población) se fija
 > **antes** de vacunar y es idéntico para las seis estrategias (misma red + misma
 > semilla). Por eso la vacunación opera sobre los susceptibles restantes y nunca
 > recae sobre un nodo ya infectado: las seis estrategias arrancan exactamente del
@@ -603,6 +603,14 @@ Cada flecha es el momento en que un evento se dispara y reduce los pesos de toda
 
 Esta sección muestra visualmente cómo la red pasa de un conjunto de nodos aislados a un grafo completamente conectado con estructura social real.
 
+> **Modo interactivo (v10).** Lo que esta sección describe en ASCII ahora puede
+> verse en vivo desde la aplicación: el modo **"Construcción visual de la red"**
+> (4ª opción del menú) abre una ventana GraphStream que revela la red fase por
+> fase y arista por arista, con un color distinto por fase (nodos, familia,
+> vecindario, hubs, long-range, puente). Implementado en
+> `presentation/VisualizadorConstruccionRed` sobre
+> `GeneradorPoblacion.generarConFases(N, semilla, listener)`.
+
 ### Estado inicial — N nodos aislados
 
 Al terminar la Fase 1, el grafo tiene N nodos sin ninguna arista:
@@ -787,7 +795,7 @@ GeneradorPoblacion.generar(N, semilla)
     ↓ (o CargadorRedCSV para red desde archivo)
 RedSocial — grafo dirigido ponderado
     ↓
-red.setearPacienteCero(15% de N, random)   → infecta los MISMOS nodos en las 6 estrategias
+red.setearPacienteCero(5% de N, random)    → infecta los MISMOS nodos en las 6 estrategias
     ↓
   [los pacientes cero pasan a INFECTADO y quedan fuera del pool susceptible]
     ↓
