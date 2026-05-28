@@ -10,9 +10,9 @@ Proyecto académico de la asignatura **Estructuras de Datos y Análisis de Algor
 
 ## Demostración
 
-[![Demo en YouTube](https://img.youtube.com/vi/WMGwWu-O2zY/0.jpg)](https://youtu.be/WMGwWu-O2zY)
+[![Demo en YouTube](https://img.youtube.com/vi/4OwRDv8kjHM/0.jpg)](https://youtu.be/4OwRDv8kjHM)
 
-[Ver demo completa en YouTube](https://youtu.be/WMGwWu-O2zY)
+[Ver demo completa en YouTube](https://youtu.be/4OwRDv8kjHM)
 
 ---
 
