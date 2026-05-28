@@ -2,12 +2,18 @@ package application.service;
 
 import application.dto.ConfiguracionDto;
 import application.dto.ResultadoSimulacionDto;
+import domain.algoritmo.AjustadorPesosAdaptativo;
+import domain.algoritmo.AjustadorPesosAdaptativo.CambioFatiga;
 import domain.algoritmo.GestorEventos;
 import domain.algoritmo.ModeloSIRV;
+import domain.model.Contacto;
+import domain.model.EventoEpidemiologico;
+import domain.model.Persona;
 import domain.model.RedSocial;
 import domain.value.EstadoSIRV;
 import infrastructure.util.CalculadorEstadisticas;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import presentation.GraficoSimulacion;
@@ -16,11 +22,13 @@ import presentation.GraficoSimulacion;
  * Orquesta el loop de turnos de una simulación.
  *
  * Por turno:
- *   1. ModeloSIRV.simularTurno() — propaga la infección
- *   2. GestorEventos.evaluar()   — dispara eventos si se supera un umbral
- *   3. GraficoSimulacion.actualizarTurno() — actualiza colores en pantalla (opcional)
- *   4. Registrar conteo {S,I,R,V} en el historial
- *   5. Verificar parada: sin infectados o turnos agotados
+ *   1. ModeloSIRV.simularTurno()           — propaga la infección con los pesos actuales
+ *   2. GestorEventos.evaluar()             — marca eventos NPI si se supera un umbral
+ *   3. Registrar conteo {S,I,R,V}          — añadir al historial
+ *   4. AjustadorPesosAdaptativo.ajustar()  — recompone pesos para el siguiente turno:
+ *                                            base × factorEventos × vigilancia × fatiga
+ *   5. GraficoSimulacion.actualizarTurno() — actualiza colores en pantalla (opcional)
+ *   6. Verificar parada: sin infectados o turnos agotados
  */
 public class SimulacionService {
 
@@ -41,10 +49,16 @@ public class SimulacionService {
                                            GraficoSimulacion grafico) {
         ModeloSIRV modelo = new ModeloSIRV(config.getDiasRecuperacion(), config.getSemillaAleatoria());
         GestorEventos gestor = new GestorEventos();
+        AjustadorPesosAdaptativo ajustador = new AjustadorPesosAdaptativo();
         List<Map<String, Integer>> historial = new ArrayList<>();
+        boolean capturarPesos = config.isCapturarHistorialPesos();
+        List<Map<String, Double>> historialPesos = new ArrayList<>();
 
         // Registrar estado inicial (turno 0)
         historial.add(contarEstados(red));
+        // Ajuste previo al primer turno: aplica vigilancia local del paciente cero
+        ajustador.ajustar(red, gestor.getFactorAcumuladoEventos(), historial);
+        if (capturarPesos) historialPesos.add(snapshotPesos(red));
 
         System.out.printf("%nIniciando simulación — %s%n", config);
         System.out.printf("%-6s | %4s | %4s | %4s | %4s%n", "Turno", "S", "I", "R", "V");
@@ -53,11 +67,23 @@ public class SimulacionService {
 
         for (int t = 1; t <= config.getTurnosMaximos(); t++) {
             Map<String, Integer> conteo = modelo.simularTurno(red);
-            gestor.evaluar(red, t);
+            List<EventoEpidemiologico> disparados = gestor.evaluar(red, t);
             historial.add(conteo);
+            CambioFatiga cambioFatiga = ajustador.ajustar(red, gestor.getFactorAcumuladoEventos(), historial);
+            if (capturarPesos) historialPesos.add(snapshotPesos(red));
             imprimirTurno(t, conteo);
 
             if (grafico != null) {
+                // Alertas por eventos NPI
+                for (EventoEpidemiologico ev : disparados) {
+                    grafico.alertaEventoNPI(ev.getNombre());
+                }
+                // Alerta por cambio de fatiga social
+                if (cambioFatiga == CambioFatiga.INICIADA) {
+                    grafico.alertaFatigaIniciada();
+                } else if (cambioFatiga == CambioFatiga.REINICIADA) {
+                    grafico.alertaFatigaReiniciada();
+                }
                 grafico.actualizarTurno(red, t);
                 pausar(config.getPausaVisualizacionMs());
             }
@@ -75,7 +101,30 @@ public class SimulacionService {
             }
         }
 
-        return calculador.construirResultado(config.getEstrategia(), historial, red.getTotalPersonas());
+        ResultadoSimulacionDto resultado =
+                calculador.construirResultado(config.getEstrategia(), historial, red.getTotalPersonas());
+        if (capturarPesos) resultado.setHistorialPesosPorTurno(historialPesos);
+        return resultado;
+    }
+
+    /**
+     * Toma una "foto" del peso de cada nodo en el turno actual: el promedio de la
+     * probContagio de sus aristas salientes (probabilidad efectiva de contagiar a un vecino).
+     * Un nodo sin aristas salientes registra 0.0.
+     */
+    private Map<String, Double> snapshotPesos(RedSocial red) {
+        Map<String, Double> snapshot = new LinkedHashMap<>();
+        for (Persona p : red.getTodasLasPersonas()) {
+            List<Contacto> salientes = red.getContactos(p);
+            double promedio = 0.0;
+            if (!salientes.isEmpty()) {
+                double suma = 0.0;
+                for (Contacto c : salientes) suma += c.getProbContagio();
+                promedio = suma / salientes.size();
+            }
+            snapshot.put(p.getId(), promedio);
+        }
+        return snapshot;
     }
 
     // ── Auxiliares ────────────────────────────────────────────────────────────

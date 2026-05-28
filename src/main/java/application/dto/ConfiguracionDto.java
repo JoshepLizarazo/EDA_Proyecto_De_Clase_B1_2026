@@ -28,6 +28,9 @@ public class ConfiguracionDto {
     private String archivoContactos;
     private boolean mostrarVisualizacion;
     private int pausaVisualizacionMs;
+    // Solo individual/comparativo capturan el historial de pesos por turno.
+    // El modo lote lo deja en false para no acumular memoria con N grafos.
+    private boolean capturarHistorialPesos;
 
     public ConfiguracionDto() {
         tamanoRed             = 80;
@@ -42,6 +45,7 @@ public class ConfiguracionDto {
         archivoContactos      = "data/contactos_red1.csv";
         mostrarVisualizacion  = true;
         pausaVisualizacionMs  = 1000;
+        capturarHistorialPesos = false;
     }
 
     // ── Getters ────────────────────────────────────────────────────────────────
@@ -58,6 +62,7 @@ public class ConfiguracionDto {
     public String getArchivoContactos()         { return archivoContactos; }
     public boolean isMostrarVisualizacion()     { return mostrarVisualizacion; }
     public int getPausaVisualizacionMs()        { return pausaVisualizacionMs; }
+    public boolean isCapturarHistorialPesos()   { return capturarHistorialPesos; }
 
     // ── Setters ────────────────────────────────────────────────────────────────
 
@@ -86,6 +91,7 @@ public class ConfiguracionDto {
     public void setArchivoContactos(String v)            { this.archivoContactos = v; }
     public void setMostrarVisualizacion(boolean v)       { this.mostrarVisualizacion = v; }
     public void setPausaVisualizacionMs(int v)           { this.pausaVisualizacionMs = v; }
+    public void setCapturarHistorialPesos(boolean v)     { this.capturarHistorialPesos = v; }
 
     @Override
     public String toString() {

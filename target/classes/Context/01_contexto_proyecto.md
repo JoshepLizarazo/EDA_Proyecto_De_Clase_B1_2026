@@ -96,9 +96,17 @@ La red imita el comportamiento social colombiano:
 
 ---
 
-## Mecanismo de actualización de pesos — Eventos por umbral
+## Mecanismo de actualización de pesos — tres capas adaptativas (v11)
 
-Durante la simulación, cuando el porcentaje de infectados supera ciertos umbrales predefinidos, el sistema dispara automáticamente un evento que modifica los pesos de todas las aristas del grafo, simulando intervenciones de salud pública:
+A partir de v11, el peso efectivo de cada arista se recalcula **cada turno** como composición de tres factores independientes:
+
+```
+probEfectiva(u→v, t) = clamp( probBase(u→v) × factorEventos(t) × vigilancia(v,t) × fatiga(t), 0.05, 0.95 )
+```
+
+### Capa 1 — Eventos por umbral (NPI)
+
+Cuando el porcentaje de infectados supera ciertos umbrales, el sistema dispara automáticamente un evento que acumula un factor reductor global, simulando intervenciones de salud pública:
 
 | Evento | Umbral | Factor multiplicador | Significado |
 |---|---|---|---|
@@ -106,7 +114,32 @@ Durante la simulación, cuando el porcentaje de infectados supera ciertos umbral
 | `CUARENTENA` | 50% infectados | × 0.50 | Restricción de movilidad obligatoria |
 | `LOCKDOWN` | 70% infectados | × 0.20 | Confinamiento total |
 
-Cada evento solo se dispara una vez. El `GestorEventos` verifica en cada turno si se cruzó un umbral aún no activado.
+Cada evento se dispara exactamente una vez. `GestorEventos` **ya no modifica las aristas directamente** — acumula el producto de los factores en `factorAcumuladoEventos` y se lo pasa al ajustador. Si se disparan los tres: factorEventos = 0.80 × 0.50 × 0.20 = 0.08.
+
+### Capa 2 — Reacción local (vigilancia)
+
+Cada nodo v reduce la probabilidad de sus aristas entrantes según cuántos de sus vecinos que le apuntan están infectados:
+
+```
+vigilancia(v, t) = 1 − 0.60 × (infectadosEntrantes(v) / totalEntrantes(v))
+```
+
+Si todos los vecinos de v están infectados, la reducción es del 60%. Si ninguno lo está, no hay efecto. Se recalcula desde cero cada turno (no acumulativo). Constante `VIGILANCIA_MAX = 0.60`.
+
+### Capa 3 — Fatiga social
+
+Si I(t) lleva 5 o más turnos consecutivos sin crecer, la población se relaja y los pesos aumentan gradualmente hasta un máximo del +30%. Se reinicia inmediatamente cuando la epidemia vuelve a crecer.
+
+```
+fatiga(t) = 1.0 + min(0.30, (turnosDecreciendo − 5) / 10 × 0.30)
+```
+
+Este factor modela el **efecto memoria**: aunque el confinamiento aún tenga efecto, las personas se vuelven más laxas conforme el peligro parece menor.
+
+### Cómo se observa en la aplicación
+
+- **Alertas en pantalla:** cuando se dispara un evento NPI o cambia el estado de la fatiga, `GraficoSimulacion` muestra un banner de color sobre el grafo durante unos segundos (naranja/rojo para NPI, verde al iniciar la relajación, dorado al restaurar la precaución).
+- **Historial de pesos** (solo modos individual y comparativo): `VentanaResultados` incluye una pestaña "Historial de pesos" con una tabla nodo × turno que muestra cómo evoluciona el peso medio de cada nodo turno a turno bajo cada estrategia.
 
 ---
 

@@ -186,6 +186,7 @@ public class IniciarSimulacionCommand {
         cfg.setArchivoContactos(orig.getArchivoContactos());
         cfg.setMostrarVisualizacion(orig.isMostrarVisualizacion());
         cfg.setPausaVisualizacionMs(orig.getPausaVisualizacionMs());
+        cfg.setCapturarHistorialPesos(orig.isCapturarHistorialPesos());
         cfg.setEstrategia(e);
         return cfg;
     }

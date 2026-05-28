@@ -1,6 +1,6 @@
 # Estructura del Proyecto — Cambios Aplicados
 
-**Última actualización:** 2026-05-26
+**Última actualización:** 2026-05-27
 
 ---
 
@@ -18,6 +18,7 @@
 | v8 | 2026-05-23 | Comparación justa (paciente cero al 15% fijado antes de vacunar, idéntico para las 6 estrategias), barra de turno con conteo SIRV bajo el grafo y nuevo modo por lotes (N grafos distintos por estrategia, comparación promedio + acumulada). Ver detalle abajo. |
 | v9 | 2026-05-23 | Glosario de métricas en los PDFs: ambos generadores (`GeneradorReportePDF` y `GeneradorReporteLotePDF`) agregan una página final "Glosario de métricas — Guía de interpretación" que explica cada variable (S, I, R, V, pico, t-pico, duración, afectados, contención %, R0, score compuesto, victorias), qué mide y qué valores son favorables. Ver detalle abajo. |
 | v10 | 2026-05-26 | Infectados iniciales 15% → **5%** de la población. Nuevo **modo "Construcción visual de la red"** (4ª opción) que anima la generación fase por fase y arista por arista (`VisualizadorConstruccionRed` + `GeneradorPoblacion.generarConFases`). Límite del spinner "Grafos por estrategia" del modo lote removido (antes tope 1000, ahora ilimitado). Ver detalle abajo. |
+| v11 | 2026-05-27 | **Pesos dinámicos adaptativos** — nuevo `AjustadorPesosAdaptativo` que recompone los pesos de todas las aristas cada turno: `base × factorEventos × vigilanciaLocal × fatiga`. `GestorEventos` deja de modificar aristas directamente y expone `factorAcumuladoEventos`. `Contacto` añade `probContagioBase` inmutable. Ver detalle abajo. |
 
 ---
 
@@ -1090,3 +1091,112 @@ cómputo crece como 6 × N simulaciones).
 
 ### 5. Pruebas realizadas
 - `mvn compile`: BUILD SUCCESS sin errores.
+
+---
+
+## v11 — Pesos dinámicos adaptativos (2026-05-27)
+
+### Motivación
+
+Hasta v10 los pesos de las aristas solo variaban cuando un evento NPI se disparaba (máximo 3 veces por simulación). La propagación no reflejaba que las personas reaccionan de forma continua a lo que ven a su alrededor (reacción local) ni que se relajan una vez el peligro parece haber pasado (fatiga social).
+
+### Nuevo mecanismo — fórmula de peso efectivo
+
+```
+probEfectiva(u→v, t) = clamp( probBase(u→v) × factorEventos(t) × vigilancia(v,t) × fatiga(t),
+                               0.05, 0.95 )
+```
+
+Los tres factores se componen multiplicativamente y se recomputan **cada turno**, en lugar de modificar los pesos de forma permanente.
+
+### Cambio de diseño en GestorEventos
+
+Antes: `GestorEventos.evaluar()` iteraba sobre todas las aristas y llamaba `c.aplicarFactor(factor)` — modificación permanente in-place.
+
+Ahora: `GestorEventos` **rastrea el producto acumulado** de los factores disparados en el campo `factorAcumuladoEventos` y lo expone con `getFactorAcumuladoEventos()`. No toca las aristas. Las aristas se actualizan por `AjustadorPesosAdaptativo`.
+
+Esto permite que `AjustadorPesosAdaptativo` recalcule el peso desde la base en cada turno, eliminando el problema de acumulación irreversible entre turnos.
+
+### Cambio en Contacto
+
+Se añadió el campo `private final double probContagioBase` (inmutable, calculado al crear la arista). `probContagio` sigue siendo mutable y es el valor efectivo del turno actual. `AjustadorPesosAdaptativo` llama a `c.setProbContagio(...)` cada turno.
+
+### Nueva clase — AjustadorPesosAdaptativo
+
+`domain/algoritmo/AjustadorPesosAdaptativo.java` — invocada desde `SimulacionService` una vez por turno, después de `gestor.evaluar()` y después de añadir el conteo al historial.
+
+**Reacción local (vigilanciaDestino):**
+
+```java
+// Para cada nodo v: contar fracción de sus vecinos entrantes infectados
+vigilancia(v) = 1 − 0.60 × (infectadosEntrantes(v) / totalEntrantes(v))
+```
+
+- La vigilancia afecta las aristas ENTRANTES del nodo v (cualquier u→v se ve reducida)
+- Se recalcula desde cero cada turno: no es acumulativa
+- Constante VIGILANCIA_MAX = 0.60 → reducción máxima del 60%
+
+**Fatiga social (factorFatiga):**
+
+```java
+// Si I no crece durante ≥ 5 turnos consecutivos:
+fatiga = 1.0 + min(0.30, (turnosDecreciendo − 5) / 10 × 0.30)
+// Si I vuelve a crecer: turnosDecreciendo = 0, fatiga = 1.0
+```
+
+- Constantes: UMBRAL_FATIGA_TURNOS = 5, FATIGA_MAX = 0.30, TURNOS_FATIGA_COMPLETA = 10
+- Imprime log cuando se alcanza el umbral y cuando se reinicia
+
+### Integración en SimulacionService
+
+```java
+AjustadorPesosAdaptativo ajustador = new AjustadorPesosAdaptativo();
+
+// Antes del loop: ajuste inicial basado en el paciente cero
+ajustador.ajustar(red, gestor.getFactorAcumuladoEventos(), historial);
+
+// Dentro del loop, después de evaluar() y historial.add():
+ajustador.ajustar(red, gestor.getFactorAcumuladoEventos(), historial);
+```
+
+### Alertas en pantalla
+
+`ajustar()` retorna un enum `CambioFatiga { NINGUNO, INICIADA, REINICIADA }` para que la UI sepa cuándo cambió el estado de la fatiga sin acoplar dominio y presentación. `SimulacionService` usa eso y la lista de eventos disparados por `GestorEventos.evaluar()` para llamar a los métodos de alerta de `GraficoSimulacion`:
+
+- `alertaEventoNPI(nombre)` → banner naranja/rojo según el evento (Alerta Leve / Cuarentena / Lockdown)
+- `alertaFatigaIniciada()` → banner verde ("la población se relaja")
+- `alertaFatigaReiniciada()` → banner dorado ("precaución restaurada por rebote")
+
+`GraficoSimulacion` añade un `JLabel` al NORTH del panel (sobre el grafo) que se hace visible con el color correspondiente y se auto-oculta tras 4 s mediante un `javax.swing.Timer`.
+
+### Historial de pesos por nodo y turno
+
+Para que el usuario pueda *ver* cómo los pesos se actualizan turno a turno bajo cada estrategia, se captura un historial del peso de cada nodo:
+
+- `ConfiguracionDto.capturarHistorialPesos` (bool, default `false`): solo se activa en los modos **individual** y **comparativo** desde `VentanaMenuPrincipal.ejecutarSimulacion`. El modo **lote** lo deja en `false` para no acumular memoria con N grafos. `IniciarSimulacionCommand.clonar()` propaga el flag a cada estrategia del comparativo.
+- `ResultadoSimulacionDto.historialPesosPorTurno` (`List<Map<String,Double>>`, default vacío + getter/setter; el constructor no cambia, así que `AgregadorLote` y `PdfSmoke` no se ven afectados).
+- `SimulacionService.snapshotPesos(red)`: por cada nodo calcula el promedio de `probContagio` de sus aristas salientes (probabilidad efectiva de contagiar a un vecino) y lo guarda. Se toma un snapshot tras el ajuste inicial (turno 0) y tras el ajuste de cada turno, de modo que `historialPesos.size() == historial.size()`.
+- `VentanaResultados`: nueva pestaña **"Historial de pesos"** (solo si hay datos). En individual muestra una tabla nodo×turno; en comparativo un `JTabbedPane` interno con una tabla por estrategia. Filas = nodos (ordenados numéricamente por id), columnas = turnos (`T0`, `T1`, ...), celda = peso medio con 3 decimales.
+
+### Archivos modificados / creados en v11
+
+#### Creados
+- `src/main/java/domain/algoritmo/AjustadorPesosAdaptativo.java`
+
+#### Modificados
+- `src/main/java/domain/model/Contacto.java` (`probContagioBase` + getter)
+- `src/main/java/domain/algoritmo/GestorEventos.java` (rastrea factor, no modifica aristas)
+- `src/main/java/application/service/SimulacionService.java` (integra ajustador, alertas y captura de pesos)
+- `src/main/java/application/dto/ConfiguracionDto.java` (flag `capturarHistorialPesos`)
+- `src/main/java/application/dto/ResultadoSimulacionDto.java` (`historialPesosPorTurno`)
+- `src/main/java/application/command/IniciarSimulacionCommand.java` (propaga el flag en `clonar`)
+- `src/main/java/presentation/GraficoSimulacion.java` (banner de alertas)
+- `src/main/java/presentation/VentanaMenuPrincipal.java` (activa el flag en individual/comparativo)
+- `src/main/java/presentation/VentanaResultados.java` (pestaña "Historial de pesos")
+- `src/main/java/Context/03_modelo_matematico.md`
+- `src/main/java/Context/04_estructura_creada.md` (este archivo)
+- `src/main/java/Context/05_grafos_y_algoritmos.md`
+- `README.md`
+
+### Pruebas realizadas
+- `mvn compile`: BUILD SUCCESS sin errores ni warnings de compilación.

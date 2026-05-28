@@ -92,9 +92,15 @@ Cada turno discreto, `ModeloSIRV.simularTurno(RedSocial)` opera de forma **sincr
 3. Aplica todos los cambios de estado simultáneamente.
 4. Retorna el conteo `{S, I, R, V}` del turno.
 
-### 2.4 Eventos automáticos por umbral
+### 2.4 Pesos dinámicos adaptativos
 
-`GestorEventos` simula intervenciones de salud pública. Cuando se cruza un umbral de infectados, multiplica el peso de **todas** las aristas por un factor de atenuación (los factores son acumulativos):
+A partir de v11, el peso efectivo de cada arista se recalcula en cada turno como composición de tres factores:
+
+```
+probEfectiva(u→v) = clamp( probBase(u→v) × factorEventos × vigilancia(v) × fatiga, 0.05, 0.95 )
+```
+
+**NPI — Eventos por umbral (`GestorEventos`):** cuando el porcentaje de infectados supera un umbral, se multiplica el factor global de forma acumulativa (los tres factores juntos = × 0.08):
 
 | Evento | Umbral θ | Factor λ | Significado |
 |---|---|---|---|
@@ -102,7 +108,17 @@ Cada turno discreto, `ModeloSIRV.simularTurno(RedSocial)` opera de forma **sincr
 | `CUARENTENA` | 50% | × 0.50 | Restricción de movilidad |
 | `LOCKDOWN` | 70% | × 0.20 | Confinamiento total |
 
-Cada evento se dispara una sola vez (flag `yaDisparado`).
+Cada evento se dispara una sola vez (flag `yaDisparado`). `GestorEventos` rastrea el factor acumulado y se lo pasa al ajustador; ya no modifica las aristas directamente.
+
+**Reacción local (`AjustadorPesosAdaptativo`):** cada nodo v reduce la prob de sus aristas entrantes según la fracción de sus vecinos que están infectados:
+
+```
+vigilancia(v) = 1 − 0.60 × (infectadosEntrantes(v) / totalEntrantes(v))
+```
+
+Si todos los vecinos de v están infectados, la reducción es del 60%. Si ninguno lo está, no hay efecto. Este factor se recalcula cada turno desde cero.
+
+**Fatiga social (`AjustadorPesosAdaptativo`):** si I(t) lleva 5 o más turnos consecutivos sin crecer, la población se relaja y los pesos aumentan gradualmente (máximo +30%). Se reinicia cuando la epidemia vuelve a crecer.
 
 ### 2.5 Análisis cuantitativo del ganador
 
@@ -120,6 +136,8 @@ score = 0.30·norm_inv(picoMaximo) + 0.15·norm_inv(duracion)
 
 - **GraphStream 2.0** muestra el grafo en tiempo real con nodos coloreados por estado SIRV (azul / rojo / verde / amarillo) y aristas cuyo grosor refleja `probContagio`.
 - Bajo el grafo, una **barra de turno** muestra en vivo el turno actual y el conteo `S / I / R / V`, tanto en la ventana individual como en cada pestaña del comparativo.
+- Sobre el grafo, un **banner de alertas** aparece cuando se dispara un evento NPI (`ALERTA_LEVE` naranja, `CUARENTENA` naranja oscuro, `LOCKDOWN` rojo) o cuando cambia la fatiga social (verde al iniciar la relajación, dorado al restaurar la precaución por un rebote). Se oculta solo tras unos segundos.
+- **Pestaña "Historial de pesos"** en `VentanaResultados` (solo en modos individual y comparativo): una tabla con los nodos en las filas y los turnos en las columnas, donde cada celda es la probabilidad media de contagio (`probContagio`) de las aristas salientes del nodo en ese turno. Permite ver cómo el peso de cada nodo evoluciona turno a turno bajo cada estrategia de vacunación (cada estrategia tiene su propia sub-pestaña en el comparativo).
 - En modo comparativo, una `VentanaComparativaTabs` aloja las 6 simulaciones en pestañas separadas (`JTabbedPane`).
 - `PanelEstadisticas` dibuja curvas SIRV en ASCII al cierre.
 - `GeneradorReportePDF` (JFreeChart + OpenPDF) produce un PDF de **8 páginas** con: portada, tabla resumen con zebra y ganador destacado, veredicto cuantitativo, curva I(t) comparativa, curvas SIRV por estrategia, barras por métrica con paleta unificada, desglose del score apilado, y una página final de **Glosario de métricas** que explica cada variable (S, I, R, V, pico, t-pico, duración, afectados, contención %, R0, score) con su interpretación y qué valores son favorables.
@@ -159,7 +177,7 @@ En entornos headless (CI, servidores sin pantalla), el programa detecta automát
 |---|---|
 | `VentanaMenuPrincipal` | Ventana raíz. Banner azul con título, selección de modo (individual / comparativo / lotes / construcción visual) y botones Continuar/Salir. |
 | `VentanaConfiguracion` | Modal con formulario: tamaño de red, estrategia (solo individual), grafos por estrategia (solo lotes), turnos, días de recuperación, visualización y carga desde CSV. |
-| `VentanaResultados` | Tabla de métricas con fila ganadora resaltada, ranking con score compuesto, curva I(t) con JFreeChart, y botones de exportación. |
+| `VentanaResultados` | Tabla de métricas con fila ganadora resaltada, ranking con score compuesto, curva I(t) con JFreeChart, **pestaña "Historial de pesos"** (solo individual/comparativo) y botones de exportación. |
 | `VentanaResultadosLote` | Resultados del lote: tabla de métricas **promedio** + victorias por estrategia, ranking por score compuesto promedio, curva I(t) promedio y exportación. |
 | `DialogoProgreso` | Diálogo modal con barra de progreso (indeterminada en individual/comparativo; determinada "grafo X de N" en el lote). |
 
@@ -367,6 +385,7 @@ Modo experimento por lotes (ejecutarLote):
 | v8 | 2026-05-23 | Comparación justa: paciente cero (15% de la población) fijado **antes** de vacunar, idéntico para las 6 estrategias. Barra de turno con conteo SIRV bajo el grafo. Nuevo **modo por lotes**: N grafos distintos por estrategia con comparación promedio + acumulada (`AgregadorLote`, `ResultadoLoteDto`, `VentanaResultadosLote`, `ModoSimulacion`). |
 | v9 | 2026-05-23 | **Glosario de métricas** en ambos PDFs: página final "Guía de interpretación" que explica cada variable del informe (S, I, R, V, pico, t-pico, duración, afectados, contención %, R0, score compuesto, victorias), qué mide y qué valores son favorables. PDF individual pasa de 7 a 8 páginas. |
 | v10 | 2026-05-26 | **Infectados iniciales 15% → 5%** (brote más controlado al inicio). Nuevo **modo "Construcción visual de la red"** (4ª opción): anima la generación fase por fase, arista por arista, con un color distinto por fase. Límite del spinner "Grafos por estrategia" del modo lote removido (antes tope 1000, ahora ilimitado). |
+| v11 | 2026-05-27 | **Pesos dinámicos adaptativos**: cada turno los pesos se recomponen como `base × factorEventos × vigilanciaLocal × fatiga`. Nuevo `AjustadorPesosAdaptativo` (reacción local por vecinos infectados + fatiga social si epidemia baja ≥5 turnos). `GestorEventos` deja de modificar aristas directamente. `Contacto` añade `probContagioBase` inmutable. **Alertas en pantalla** (banner superior de `GraficoSimulacion`) al dispararse un evento NPI o un cambio de fatiga. Nueva **pestaña "Historial de pesos"** en `VentanaResultados` (solo individual/comparativo): tabla nodo×turno con la probabilidad media de contagio que evoluciona cada turno. |
 
 ---
 

@@ -15,8 +15,10 @@ import java.io.IOException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -103,7 +105,108 @@ public class VentanaResultados extends JFrame {
         JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Tabla y ranking", crearPanelTablaRanking());
         tabs.addTab("Curva I(t)",      crearPanelGrafico());
+        // La pestaña de pesos va aislada: si falla, no debe impedir que se muestren
+        // la tabla de métricas y la curva I(t).
+        if (hayHistorialPesos()) {
+            try {
+                tabs.addTab("Historial de pesos", crearPanelHistorialPesos());
+            } catch (RuntimeException ex) {
+                System.err.println("[VentanaResultados] No se pudo construir la pestaña "
+                        + "'Historial de pesos': " + ex);
+                ex.printStackTrace();
+            }
+        }
         return tabs;
+    }
+
+    /** True si al menos una estrategia capturó el historial de pesos por turno. */
+    private boolean hayHistorialPesos() {
+        return resultados.stream()
+                .anyMatch(r -> r.getHistorialPesosPorTurno() != null
+                        && !r.getHistorialPesosPorTurno().isEmpty());
+    }
+
+    /**
+     * Construye la pestaña con el historial de pesos por nodo y por turno.
+     * Cada estrategia obtiene su propia sub-pestaña con una tabla donde las filas
+     * son los nodos y las columnas son los turnos; cada celda es el promedio de la
+     * probabilidad de contagio saliente del nodo en ese turno.
+     */
+    private JComponent crearPanelHistorialPesos() {
+        JLabel nota = new JLabel(
+                "Cada celda = probabilidad media de contagio (probContagio) de las aristas "
+                + "salientes del nodo en ese turno. Refleja eventos NPI, vigilancia local y fatiga.");
+        nota.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+
+        JComponent contenido;
+        if (modoIndividual) {
+            contenido = crearTablaPesos(resultados.get(0));
+        } else {
+            JTabbedPane porEstrategia = new JTabbedPane(JTabbedPane.TOP);
+            for (ResultadoSimulacionDto r : resultados) {
+                if (r.getHistorialPesosPorTurno() == null || r.getHistorialPesosPorTurno().isEmpty()) {
+                    continue;
+                }
+                porEstrategia.addTab(r.getEstrategia().name(), crearTablaPesos(r));
+            }
+            contenido = porEstrategia;
+        }
+
+        JPanel panel = new JPanel(new BorderLayout(0, 4));
+        panel.add(nota, BorderLayout.NORTH);
+        panel.add(contenido, BorderLayout.CENTER);
+        return panel;
+    }
+
+    /** Tabla nodos×turnos del historial de pesos de una estrategia. */
+    private JScrollPane crearTablaPesos(ResultadoSimulacionDto r) {
+        List<Map<String, Double>> hist = r.getHistorialPesosPorTurno();
+        int turnos = hist.size();
+
+        // Conjunto ordenado de todos los ids de nodo (estable entre turnos)
+        TreeSet<String> nodos = new TreeSet<>(Comparator
+                .comparingInt(VentanaResultados::numeroDeId)
+                .thenComparing(Comparator.naturalOrder()));
+        for (Map<String, Double> turno : hist) nodos.addAll(turno.keySet());
+
+        String[] columnas = new String[turnos + 1];
+        columnas[0] = "Nodo";
+        for (int t = 0; t < turnos; t++) columnas[t + 1] = "T" + t;
+
+        DefaultTableModel modelo = new DefaultTableModel(columnas, 0) {
+            @Override public boolean isCellEditable(int row, int col) { return false; }
+        };
+        for (String nodo : nodos) {
+            Object[] fila = new Object[turnos + 1];
+            fila[0] = nodo;
+            for (int t = 0; t < turnos; t++) {
+                Double v = hist.get(t).get(nodo);
+                fila[t + 1] = v == null ? "—" : String.format("%.3f", v);
+            }
+            modelo.addRow(fila);
+        }
+
+        JTable tabla = new JTable(modelo);
+        tabla.setRowHeight(22);
+        tabla.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);  // permite scroll horizontal
+        tabla.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        tabla.getTableHeader().setFont(tabla.getFont().deriveFont(Font.BOLD));
+        for (int c = 0; c < tabla.getColumnCount(); c++) {
+            tabla.getColumnModel().getColumn(c).setPreferredWidth(c == 0 ? 70 : 56);
+        }
+
+        JScrollPane scroll = new JScrollPane(tabla);
+        scroll.setBorder(BorderFactory.createTitledBorder(
+                "Peso medio por nodo y turno — " + r.getEstrategia().name()));
+        return scroll;
+    }
+
+    /** Extrae el número de un id "P003" → 3 para ordenar nodos numéricamente. */
+    private static int numeroDeId(String id) {
+        StringBuilder sb = new StringBuilder();
+        for (char ch : id.toCharArray()) if (Character.isDigit(ch)) sb.append(ch);
+        try { return sb.length() > 0 ? Integer.parseInt(sb.toString()) : Integer.MAX_VALUE; }
+        catch (NumberFormatException e) { return Integer.MAX_VALUE; }
     }
 
     private JSplitPane crearPanelTablaRanking() {

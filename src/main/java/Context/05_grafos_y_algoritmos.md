@@ -172,21 +172,37 @@ Con sincronía (CORRECTO):
 
 La implementación usa un `Set<Persona> nuevosInfectados` que acumula todos los candidatos antes de aplicar cualquier cambio de estado.
 
-### GestorEventos — modificación dinámica de aristas
+### GestorEventos + AjustadorPesosAdaptativo — pesos dinámicos adaptativos (v11)
 
-Durante la simulación, cuando el porcentaje de infectados supera ciertos umbrales, **se modifican los pesos de TODAS las aristas del grafo**:
+A partir de v11, el peso efectivo de cada arista se recalcula en cada turno como composición de tres factores independientes:
 
 ```
-Umbral 30% infectados → × 0.80 en todas las aristas (ALERTA_LEVE)
-Umbral 50% infectados → × 0.50 en todas las aristas (CUARENTENA)
-Umbral 70% infectados → × 0.20 en todas las aristas (LOCKDOWN)
-
-Los factores son ACUMULATIVOS:
-  Si se aplican los tres: probContagio_final = probContagio_original × 0.80 × 0.50 × 0.20
-                                              = probContagio_original × 0.08
+probEfectiva(u→v) = clamp( probBase(u→v) × factorEventos × vigilancia(v) × factorFatiga )
 ```
 
-Esta es una de las partes más interesantes del modelo: **el grafo muta en tiempo de ejecución**. Cada `Contacto` (arista) expone el método `aplicarFactor(double factor)` que modifica su `probContagio` in-place. Cuando el gestor de eventos se dispara, itera sobre `red.getTodosLosContactos()` y llama `aplicarFactor` en cada arista.
+**GestorEventos** ya no modifica aristas directamente. Solo rastrea el factor NPI acumulado:
+
+```
+Umbral 30% infectados → factorEventos × 0.80  (ALERTA_LEVE)
+Umbral 50% infectados → factorEventos × 0.50  (CUARENTENA)
+Umbral 70% infectados → factorEventos × 0.20  (LOCKDOWN)
+
+Si se disparan los tres: factorEventos = 0.80 × 0.50 × 0.20 = 0.08
+```
+
+**AjustadorPesosAdaptativo** aplica los tres factores cada turno:
+
+```
+vigilancia(v) = 1 − 0.60 × (vecinosEntrantes_infectados(v) / vecinosEntrantes_totales(v))
+  → si el 100% de los vecinos que apuntan a v están infectados: vigilancia = 0.40 (−60%)
+  → si ninguno está infectado: vigilancia = 1.00 (sin efecto)
+
+fatiga(t):
+  si infectados lleva ≥ 5 turnos sin crecer → sube hasta +30% gradualmente
+  si infectados vuelve a crecer → se reinicia a 1.0
+```
+
+`Contacto` almacena `probContagioBase` (inmutable) y `probContagio` (efectiva del turno). El ajustador resetea `probContagio` desde la base cada turno, eliminando el problema de acumulación entre turnos.
 
 ---
 
@@ -503,99 +519,115 @@ En una red homogénea (todos los nodos con el mismo grado y pesos iguales), la a
 
 ---
 
-## 7. Eventos epidemiológicos — cómo funcionan la Cuarentena, Lockdown y Alerta Leve
+## 7. Pesos dinámicos adaptativos — NPI, reacción local y fatiga social (v11)
 
-### El concepto: intervenciones no farmacéuticas (NPI)
+### El concepto: tres capas de dinamismo en los pesos
 
-En una epidemia real los gobiernos reaccionan cuando la cantidad de infectados supera ciertos umbrales: primero recomiendan medidas básicas, luego restringen la movilidad, y finalmente confinan a la población. Cada una de estas medidas reduce la probabilidad de que una persona contagie a otra.
+A partir de v11 el peso efectivo de cada arista en cada turno es el producto de tres factores independientes:
 
-En el código esto se modela de forma directa: **cuando se supera un umbral, se multiplica el peso de TODAS las aristas del grafo por un factor reductor**. La red social "se encoje" dinámicamente, reflejando que la gente se aísla, usa tapabocas y evita lugares concurridos.
+```
+probEfectiva(u→v, t) = clamp( probBase(u→v) × factorEventos(t) × vigilancia(v,t) × fatiga(t),
+                               0.05, 0.95 )
+```
 
-### Los tres eventos del sistema
+### Capa 1 — Eventos NPI (GestorEventos)
 
-| Evento | Clase | Umbral de infectados | Factor multiplicador | Reducción de contagio |
-|--------|-------|---------------------|----------------------|----------------------|
-| `ALERTA_LEVE` | `EventoEpidemiologico` | 30% de la población | × 0.80 | –20% |
-| `CUARENTENA` | `EventoEpidemiologico` | 50% de la población | × 0.50 | –50% |
-| `LOCKDOWN` | `EventoEpidemiologico` | 70% de la población | × 0.20 | –80% |
+Tres intervenciones de salud pública que reducen el factor global cuando la epidemia supera umbrales:
 
-Cada evento se dispara **exactamente una vez** por simulación. El flag `yaDisparado` dentro de `EventoEpidemiologico` garantiza que aunque el umbral siga superado en turnos posteriores, el evento no se vuelva a aplicar.
+| Evento | Umbral | Factor | Factor acumulado (si se disparan los tres) |
+|--------|--------|--------|--------------------------------------------|
+| `ALERTA_LEVE` | 30% infectados | × 0.80 | × 0.80 |
+| `CUARENTENA` | 50% infectados | × 0.50 | × 0.40 |
+| `LOCKDOWN` | 70% infectados | × 0.20 | × 0.08 |
 
-### Cómo se evalúan en cada turno
+Cada evento se dispara exactamente una vez (flag `yaDisparado`). `GestorEventos` **ya no modifica aristas directamente**: acumula los factores en `factorAcumuladoEventos` y se lo pasa al ajustador.
 
-`GestorEventos.evaluar()` se llama una vez por turno, después de que `ModeloSIRV` ya propagó la infección:
+### Capa 2 — Reacción local (AjustadorPesosAdaptativo)
+
+Cada nodo v reduce la probabilidad de sus **aristas entrantes** según cuántos de sus vecinos que le apuntan están infectados:
+
+```
+vigilancia(v) = 1 − 0.60 × (infectadosEntrantes(v) / totalEntrantes(v))
+
+vigilancia = 1.00  si 0% de vecinos infectados (sin reducción)
+vigilancia = 0.70  si 50% de vecinos infectados (−30%)
+vigilancia = 0.40  si 100% de vecinos infectados (−60%, máximo)
+```
+
+Esta vigilancia se aplica a la arista u→v: si v está rodeado de infectados, la probabilidad de que CUALQUIERA de ellos lo contagie baja. El factor es completamente **local e independiente por nodo**: un nodo con vecinos sanos no se beneficia ni se perjudica de lo que pasa en otra parte de la red.
+
+### Capa 3 — Fatiga social (AjustadorPesosAdaptativo)
+
+Si la epidemia lleva 5 o más turnos consecutivos sin crecer (I(t) ≤ I(t−1)), la población se relaja y los pesos aumentan gradualmente hasta un máximo del 30%:
+
+```
+turnosDecreciendo < 5:    fatiga = 1.00  (sin efecto)
+turnosDecreciendo = 5:    fatiga = 1.00  (primer turno de umbral)
+turnosDecreciendo = 10:   fatiga = 1.15  (+15%)
+turnosDecreciendo = 15:   fatiga = 1.30  (+30%, máximo)
+```
+
+Cuando I(t) vuelve a crecer, `turnosDecreciendo` se reinicia y `fatiga = 1.00`. Este factor modela el **efecto memoria**: el confinamiento aún tiene efecto (factorEventos < 1), pero las personas se vuelven más laxas conforme el peligro parece menor.
+
+### Flujo de actualización por turno
 
 ```
 Turno t:
-  1. ModeloSIRV.simularTurno(red)   → calcula nuevos infectados del turno t
-  2. GestorEventos.evaluar(red, t)  → revisa si algún umbral fue superado
-
-  Dentro de evaluar():
-    infectados = contarPersonasEnEstado(INFECTADO)
-    porcentaje = infectados / totalPersonas
-
-    Para cada evento (en orden ALERTA_LEVE → CUARENTENA → LOCKDOWN):
-      Si !evento.estaDisparado() && porcentaje >= evento.getUmbral():
-        → Para CADA arista del grafo: arista.aplicarFactor(evento.getFactorMultiplicador())
-        → evento.disparar()           ← lo marca como disparado, no se volverá a aplicar
+  1. ModeloSIRV.simularTurno(red)
+        ↓ usa probContagio efectiva del turno anterior
+  2. GestorEventos.evaluar(red, t)
+        ↓ si se supera un umbral: factorAcumuladoEventos × factorEvento
+  3. historial.add(conteo)
+        ↓ registra I(t) para el cálculo de fatiga
+  4. AjustadorPesosAdaptativo.ajustar(red, factorEventos, historial)
+        ↓ para cada arista:
+           a. computarVigilancia(red)   → stats de infectados entrantes por nodo
+           b. computarFatiga(historial) → compara I(t) vs I(t−1), actualiza contador
+           c. c.setProbContagio(base × factorEventos × vigilanciaDestino × fatiga)
 ```
 
-### Los factores son acumulativos
-
-Si en la misma simulación se disparan los tres eventos, cada arista acumula los tres factores:
+### Ejemplo numérico compuesto
 
 ```
-probContagio original de una arista = 0.50
+Arista P001 → P043 en el turno 22:
+  probContagioBase = 0.55   (trabajador de salud, estrato 2, 45 años)
+  factorEventos    = 0.40   (ALERTA_LEVE × CUARENTENA ya disparados)
+  vigilancia(P043) = 0.52   (60% de los vecinos de P043 están infectados →
+                              1 − 0.60 × 0.80 = 0.52)
+  fatiga(22)       = 1.00   (la epidemia sigue creciendo, sin fatiga)
 
-Turno 12 → ALERTA_LEVE  (30% infectados): 0.50 × 0.80 = 0.40
-Turno 18 → CUARENTENA   (50% infectados): 0.40 × 0.50 = 0.20
-Turno 24 → LOCKDOWN     (70% infectados): 0.20 × 0.20 = 0.04
+  probEfectiva = clamp(0.55 × 0.40 × 0.52 × 1.00, 0.05, 0.95)
+               = clamp(0.114, 0.05, 0.95) = 0.114
 
-Resultado: la arista que originalmente tenía 50% de contagio por turno
-           ahora tiene apenas 4% — el contagio se redujo al 8% del original.
+Turno 35 (epidemia en declive, 8 turnos bajando):
+  factorEventos    = 0.08   (los tres NPI activos)
+  vigilancia(P043) = 1.00   (P043 ya no tiene vecinos infectados)
+  fatiga(35)       = 1.09   (8 turnos > umbral 5 → 3/10 × 30% = +9%)
+
+  probEfectiva = clamp(0.55 × 0.08 × 1.00 × 1.09, 0.05, 0.95)
+               = clamp(0.048, 0.05, 0.95) = 0.05  ← clamp al mínimo
 ```
 
-Matemáticamente: `prob_final = prob_original × 0.80 × 0.50 × 0.20 = prob_original × 0.08`
-
-### Dónde vive la modificación en el código
-
-La clave es que `Contacto` (arista) expone `aplicarFactor(double factor)`:
-
-```java
-// En Contacto.java
-public void aplicarFactor(double factor) {
-    setProbContagio(this.probContagio * factor);  // modifica in-place, clamp a [0.05, 0.95]
-}
-```
-
-Y `GestorEventos` itera sobre todas las aristas con `red.getTodosLosContactos()`, que recorre el `HashMap<Persona, List<Contacto>>` entero:
-
-```java
-for (Contacto c : red.getTodosLosContactos()) {
-    c.aplicarFactor(evento.getFactorMultiplicador());
-}
-```
-
-Esto significa que el grafo **muta sus pesos en tiempo de ejecución**: el mismo `ModeloSIRV` que en el turno 5 usaba `probContagio = 0.50` en una arista, en el turno 19 usará `probContagio = 0.20` en esa misma arista, sin ningún cambio en la lógica de propagación. Solo cambió el peso del grafo.
-
-### Efecto visible en la curva de infectados
-
-El resultado de estos eventos es el famoso "aplanar la curva":
+### Efecto observable en las curvas
 
 ```
 Infectados
     │
- 70%┤                    ╭─── sin NPI: curva alta y rápida
-    │                   ╱
- 50%┤               ───╱
-    │              ╱          ╭── con NPI: curva más baja y lenta
- 30%┤     ALERTA  ╱   CUAREN ╱  LOCKDOWN
-    │         ╲  ╱      ╲   ╱      ╲
-    │          ▼         ▼          ▼
-    └──────────────────────────────────► Turno
+ 70%┤            ╭── sin dinámica adaptativa: bajada suave y uniforme
+    │           ╱
+ 50%┤ ─ ─ ─ ─ ─                         ╭── con fatiga: rebote tardío al relajarse
+    │      ALERTA  CUAREN  LOCKDOWN      │
+ 30%┤          ↓      ↓       ↓          │
+    │           ╲                        │
+    │            ╲  con vigilancia:      ╱
+    │             ╲ bajada más rápida  ─╯  (la gente se cuida más en el pico)
+    └──────────────────────────────────────► Turno
 ```
 
-Cada flecha es el momento en que un evento se dispara y reduce los pesos de todas las aristas.
+### Cómo se observa en la aplicación
+
+- **Alertas en pantalla.** Cuando un evento NPI se dispara o la fatiga cambia de estado, `GraficoSimulacion` muestra un banner de color sobre el grafo durante unos segundos (naranja/rojo para NPI, verde al iniciar la fatiga, dorado al restaurarse la precaución). Esto hace visible el momento exacto en que el modelo modifica el comportamiento de la red.
+- **Historial de pesos (solo individual/comparativo).** `VentanaResultados` incluye una pestaña "Historial de pesos" con una tabla nodo×turno: cada celda es el promedio de `probContagio` de las aristas salientes del nodo en ese turno. Permite seguir cómo, p. ej., bajo la estrategia `BETWEENNESS`, los pesos caen al dispararse la cuarentena y vuelven a subir cuando la fatiga social entra en juego. En el comparativo hay una sub-pestaña por cada una de las 6 estrategias.
 
 ---
 
@@ -811,16 +843,23 @@ VacunacionService.aplicar(estrategia)        → vacuna el 20% de los SUSCEPTIBL
     ↓
 SimulacionService.ejecutar(red, config, grafico)
     │
+    ├── ajustador.ajustar() inicial  ← vigilancia del paciente cero antes del turno 1
+    │
     └── loop hasta I = 0 o turno máximo:
           ├── ModeloSIRV.simularTurno(red)
-          │     ├── Recolectar nuevosInfectados (aristas INFECTADO→SUSCEPTIBLE)
+          │     ├── Recolectar nuevosInfectados (aristas INFECTADO→SUSCEPTIBLE, usa probContagio efectiva)
           │     ├── Recolectar nuevosRecuperados (diasInfectado >= diasRecuperacion)
           │     └── Aplicar cambios de estado (sincronía — todos al final)
           │
           ├── GestorEventos.evaluar(red, turno)
-          │     └── Si % infectados supera umbral: aplicarFactor en TODAS las aristas
+          │     └── Si % infectados supera umbral: factorAcumuladoEventos × factor
           │
-          └── Registrar {S, I, R, V} del turno
+          ├── Registrar {S, I, R, V} del turno en historial
+          │
+          └── AjustadorPesosAdaptativo.ajustar(red, factorEventos, historial)
+                ├── computarVigilancia(red)   → stats infectadosEntrantes por nodo
+                ├── computarFatiga(historial) → I(t) vs I(t−1), actualiza turnosDecreciendo
+                └── para cada arista: setProbContagio(base × eventos × vigilancia × fatiga)
     ↓
 ResultadoSimulacionDto
     ↓

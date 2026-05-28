@@ -159,7 +159,7 @@ Nuestro proyecto cumple las restricciones impuestas por la r\'ubrica del curso:
     \item \textbf{Equipo de tres integrantes.}
     \item \textbf{M\'as de un caso de prueba:} evaluamos la red principal de $N = 300$ nodos sobre tres modos de ejecuci\'on: individual por estrategia, comparativo de las seis estrategias simult\'aneamente, y experimento por lotes con 10\,000 grafos independientes por estrategia (60\,000 simulaciones totales).
     \item \textbf{Creaci\'on del grafo a trav\'es de archivo plano:} adem\'as de la generaci\'on autom\'atica, dise\~namos el sistema para aceptar la red desde archivos CSV (\texttt{personas\_red.csv} y \texttt{contactos\_red.csv}).
-    \item \textbf{Mecanismo propio de actualizaci\'on de pesos:} ideamos un sistema de eventos epidemiol\'ogicos autom\'aticos por umbral (ALERTA\_LEVE, CUARENTENA, LOCKDOWN) que modifican din\'amicamente todos los pesos del grafo durante la ejecuci\'on.
+    \item \textbf{Mecanismo propio de actualizaci\'on de pesos:} dise\~namos un sistema de tres capas que recompone el peso efectivo de cada arista en cada turno: (i) eventos NPI por umbral (ALERTA\_LEVE, CUARENTENA, LOCKDOWN), (ii) reacci\'on local de vigilancia y (iii) fatiga social por declive prolongado de la epidemia.
     \item \textbf{Coherencia de la informaci\'on:} la red modela patrones reales colombianos extra\'idos del DANE; las restricciones m\'edicas (20\% de recursos, 15\% de pacientes cero) reflejan escenarios pl\'ausibles de salud p\'ublica.
     \item \textbf{Resultado claro:} cada simulaci\'on produce m\'etricas cuantitativas (pico de infectados, duraci\'on del brote, total de afectados, porcentaje de contenci\'on, $R_0$ estimado) y un veredicto rankeado de las estrategias seg\'un un score compuesto.
 \end{itemize}
@@ -668,21 +668,21 @@ public class Persona {
 
 \subsubsection{\texttt{Contacto} -- la arista}
 
-Representa una arista dirigida y ponderada. El peso (\texttt{probContagio}) se calcula al crearla y est\'a clampado a $[0.05, 0.95]$ tanto en el constructor como en el setter. Adem\'as, expone el m\'etodo \texttt{aplicarFactor(double)} usado por el sistema de eventos para modificar din\'amicamente la probabilidad de contagio.
+Representa una arista dirigida y ponderada. Almacena dos valores de peso: \texttt{probContagioBase} (inmutable, calculado una sola vez al construir la red) y \texttt{probContagio} (el valor efectivo del turno actual, reescrito cada turno por \texttt{AjustadorPesosAdaptativo}). Ambos est\'an clampados a $[0.05, 0.95]$.
 
 \begin{lstlisting}[language=Java, caption={Clase \texttt{Contacto} (paquete \texttt{domain.model}).}]
 public class Contacto {
     private final Persona origen, destino;
-    private double probContagio;  // peso clampado a [0.05, 0.95]
+    private final double probContagioBase; // inmutable - base demografica
+    private double probContagio;           // efectivo del turno actual
 
     public Contacto(Persona origen, Persona destino, double prob) {
         this.origen = origen;
         this.destino = destino;
-        this.probContagio = clamp(prob, 0.05, 0.95);
+        this.probContagioBase = clamp(prob, 0.05, 0.95);
+        this.probContagio = this.probContagioBase;
     }
-    public void aplicarFactor(double factor) {
-        setProbContagio(this.probContagio * factor);
-    }
+    public double getProbContagioBase() { return probContagioBase; }
     public void setProbContagio(double p) {
         this.probContagio = clamp(p, 0.05, 0.95);
     }
@@ -694,7 +694,7 @@ public class Contacto {
 
 \subsubsection{\texttt{EventoEpidemiologico} -- intervenci\'on no farmac\'eutica}
 
-Representa un evento de salud p\'ublica que modifica el grafo cuando se cruza un umbral de infectados. Incluye una bandera \texttt{yaDisparado} para evitar reactivaciones. Se desarrolla en detalle en la secci\'on~\ref{sec:eventos}.
+Representa un evento de salud p\'ublica activado cuando se cruza un umbral de infectados. La bandera \texttt{yaDisparado} garantiza que cada evento se dispara exactamente una vez. Cuando se activa, \texttt{GestorEventos} acumula su factor en \texttt{factorAcumuladoEventos}; el ajuste real de los pesos lo realiza \texttt{AjustadorPesosAdaptativo} cada turno a partir de ese factor. Se desarrolla en detalle en la secci\'on~\ref{sec:eventos}.
 
 
 \subsection{Generaci\'on de la red: las seis fases del \texttt{GeneradorPoblacion}}
@@ -1155,19 +1155,28 @@ H\'ibrida $\star$ & Score compuesto & \textit{Betw.} topol\'ogico + grado + atri
 \label{sec:eventos}
 %==============================================================================
 
-La r\'ubrica del proyecto exige expl\'icitamente que cada equipo dise\~ne ``\textit{un mecanismo propio para actualizar informaci\'on en medio de la ejecuci\'on, como pesos de aristas}''. Nuestra implementaci\'on son los \textbf{eventos epidemiol\'ogicos por umbral}.
+La r\'ubrica del proyecto exige expl\'icitamente que cada equipo dise\~ne ``\textit{un mecanismo propio para actualizar informaci\'on en medio de la ejecuci\'on, como pesos de aristas}''. Nuestra implementaci\'on, completada en la versi\'on 11 del proyecto, introduce \textbf{tres mecanismos complementarios} que se componen multiplicativamente cada turno para determinar el peso efectivo de cada arista:
 
-\subsection{Concepto: intervenciones no farmac\'euticas}
+\begin{equation}
+\boxed{
+w_{\text{ef}}(u{\to}v,\,t) = \mathrm{clamp}\!\Big(\, w_{\text{base}}(u{\to}v)\cdot f_{\text{eventos}}(t)\cdot \mathrm{vig}(v,t)\cdot \mathrm{fatiga}(t),\; 0.05,\; 0.95 \,\Big)
+}
+\label{eq:peso_efectivo}
+\end{equation}
 
-En una epidemia real, los gobiernos reaccionan cuando la cantidad de infectados supera ciertos umbrales: primero recomiendan medidas b\'asicas, luego restringen la movilidad y finalmente confinan a la poblaci\'on. Cada una de estas medidas reduce la probabilidad de que una persona contagie a otra. A estas medidas se les llama \textit{Intervenciones No Farmac\'euticas} (NPI por sus siglas en ingl\'es).
+Los tres factores parten siempre del \texttt{probContagioBase} inmutable de la arista, lo que elimina el problema de acumulaci\'on de errores entre turnos. A continuaci\'on detallamos cada capa.
 
-En nuestro c\'odigo modelamos esto de forma directa: \textbf{cuando se supera un umbral, multiplicamos el peso de todas las aristas del grafo por un factor reductor}. La red social ``se encoge'' din\'amicamente, reflejando que la gente se a\'isla, usa tapabocas y evita lugares concurridos.
+\subsection{Capa 1 -- Intervenciones No Farmac\'euticas, NPI (\texttt{GestorEventos})}
 
-\subsection{Los tres eventos del sistema}
+\subsubsection{Concepto}
+
+En una epidemia real, los gobiernos reaccionan cuando la cantidad de infectados supera ciertos umbrales: primero recomiendan medidas b\'asicas, luego restringen la movilidad y finalmente confinan a la poblaci\'on. A estas medidas se les llama \textit{Intervenciones No Farmac\'euticas} (NPI). En nuestro c\'odigo modelamos el efecto conjunto de todos los NPI como un factor global acumulativo $f_{\text{eventos}}$ que disminuye cada vez que se cruza un umbral.
+
+\subsubsection{Los tres eventos del sistema}
 
 \begin{table}[H]
 \centering
-\caption{Eventos epidemiol\'ogicos autom\'aticos.}
+\caption{Eventos epidemiol\'ogicos autom\'aticos y su efecto sobre $f_{\text{eventos}}$.}
 \label{tab:eventos}
 \begin{tabular}{l c c c}
 \toprule
@@ -1180,58 +1189,155 @@ En nuestro c\'odigo modelamos esto de forma directa: \textbf{cuando se supera un
 \end{tabular}
 \end{table}
 
-Cada evento se dispara \textbf{exactamente una vez} por simulaci\'on. El \textit{flag} \texttt{yaDisparado} dentro de \texttt{EventoEpidemiologico} garantiza que aunque el umbral siga superado en turnos posteriores, el evento no se vuelva a aplicar.
+Cada evento se dispara \textbf{exactamente una vez} (flag \texttt{yaDisparado}). El factor acumulado al dispararse los tres es:
+\[
+f_{\text{eventos}} = 0.80 \times 0.50 \times 0.20 = 0.08
+\]
 
-\subsection{Formalizaci\'on matem\'atica}
+\subsubsection{Dise\~no del \texttt{GestorEventos} (v11)}
 
-Matem\'aticamente, los eventos representan una perturbaci\'on externa aplicada al conjunto de pesos $w$ del grafo en el turno $t^*$ en que se cruza el umbral $\theta$:
-\begin{equation}
-\forall (u,v) \in E : \quad w'(u,v) = w(u,v) \cdot \lambda_{\text{evento}} \quad \text{si} \quad \frac{I(t^*)}{N} \geq \theta
-\end{equation}
-donde $\lambda_{\text{evento}} \in (0, 1)$ es el factor de atenuaci\'on del evento.
-
-\subsection{Algoritmo del \texttt{GestorEventos}}
+A diferencia de versiones anteriores en las que el \texttt{GestorEventos} iteraba sobre todas las aristas y llamaba directamente a \texttt{aplicarFactor()}, ahora \textbf{solo acumula el factor} en un campo interno y lo expone al ajustador:
 
 \begin{algorithm}[H]
-\caption{\texttt{GestorEventos.evaluar} -- ejecutado al final de cada turno}
+\caption{\texttt{GestorEventos.evaluar} -- acumula el factor NPI, ya no modifica aristas}
 \begin{algorithmic}[1]
 \Require Red social $G$, turno actual $t$, lista de eventos $\mathcal{E}$
-\State infectados $\gets$ contar nodos en estado INFECTADO
-\State porcentaje $\gets$ infectados / $|V|$
+\State porcentaje $\gets$ |nodos INFECTADO| / $|V|$
+\State disparados $\gets$ lista vac\'ia
 \ForAll{evento $e \in \mathcal{E}$ en orden ALERTA\_LEVE $\rightarrow$ CUARENTENA $\rightarrow$ LOCKDOWN}
-    \If{$\neg e.\text{yaDisparado}$ \textbf{y} porcentaje $\geq e.\text{umbral}$}
-        \ForAll{arista $c \in G.\text{getTodosLosContactos}()$}
-            \State $c.\text{aplicarFactor}(e.\text{factorMultiplicador})$
-        \EndFor
-        \State $e.\text{disparar}()$ \Comment{marca como ya disparado}
+    \If{$\neg e.\texttt{yaDisparado}$ \textbf{y} porcentaje $\geq e.\texttt{umbral}$}
+        \State $f_{\text{eventos}} \gets f_{\text{eventos}} \times e.\texttt{factorMultiplicador}$
+        \State $e.\texttt{disparar}()$ \Comment{marca \texttt{yaDisparado = true}}
+        \State disparados.agregar($e$)
     \EndIf
 \EndFor
+\State \Return disparados \Comment{para que la UI muestre la alerta correspondiente}
 \end{algorithmic}
 \end{algorithm}
 
-\subsection{Efecto acumulativo: ejemplo num\'erico}
-
-Si en la misma simulaci\'on se disparan los tres eventos, cada arista acumula los tres factores. Consideremos una arista con \texttt{probContagio} original $= 0.50$:
+\subsubsection{Efecto acumulativo sobre $f_{\text{eventos}}$: ejemplo num\'erico}
 
 \begin{table}[H]
 \centering
-\caption{Efecto acumulativo de los tres eventos sobre una arista.}
+\caption{Efecto acumulativo de los tres eventos sobre el factor NPI.}
 \label{tab:efecto_acumulado}
 \begin{tabular}{c l c c}
 \toprule
-\textbf{Turno} & \textbf{Evento disparado} & \textbf{C\'alculo} & \textbf{Peso resultante} \\
+\textbf{Turno} & \textbf{Evento disparado} & \textbf{C\'alculo} & \textbf{$f_{\text{eventos}}$} \\
 \midrule
-12 & \texttt{ALERTA\_LEVE} (30\%) & $0.50 \times 0.80$ & $0.40$ \\
-18 & \texttt{CUARENTENA} (50\%) & $0.40 \times 0.50$ & $0.20$ \\
-24 & \texttt{LOCKDOWN} (70\%) & $0.20 \times 0.20$ & $0.04$ \\
+12 & \texttt{ALERTA\_LEVE} (30\%) & $1.00 \times 0.80$ & $0.80$ \\
+18 & \texttt{CUARENTENA} (50\%) & $0.80 \times 0.50$ & $0.40$ \\
+24 & \texttt{LOCKDOWN} (70\%) & $0.40 \times 0.20$ & $0.08$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-La arista que originalmente ten\'ia 50\% de probabilidad de contagio por turno termina con apenas 4\%: el contagio se redujo al 8\% del original. Matem\'aticamente:
-\[
-w_{\text{final}} = w_{\text{original}} \cdot 0.80 \cdot 0.50 \cdot 0.20 = w_{\text{original}} \cdot 0.08
-\]
+El peso efectivo en el turno 24, con los dem\'as factores en 1.0 y \texttt{probBase} $= 0.50$, ser\'ia:
+$w_{\text{ef}} = \mathrm{clamp}(0.50 \times 0.08, 0.05, 0.95) = 0.04$.
+
+\subsection{Capa 2 -- Reacci\'on local (\texttt{AjustadorPesosAdaptativo})}
+\label{sec:vigilancia}
+
+\subsubsection{Concepto}
+
+Cuando un nodo $v$ percibe que varios de sus vecinos directos est\'an infectados, aumenta su cautela: sale menos, usa protecci\'on, evita el contacto. Modelamos este fen\'omeno reduciendo la probabilidad de contagio en \emph{todas las aristas entrantes a} $v$ de forma proporcional a la fracci\'on de sus vecinos infectados:
+
+\begin{equation}
+\mathrm{vig}(v,t) = 1 - 0.60 \times \frac{|\{u : (u{\to}v)\in E \;\wedge\; \mathrm{estado}(u,t) = I\}|}{|\{u : (u{\to}v)\in E\}|}
+\label{eq:vigilancia}
+\end{equation}
+
+\paragraph{Interpretaci\'on.}
+\begin{itemize}
+    \item Si el 100\% de los vecinos entrantes de $v$ est\'an infectados: $\mathrm{vig}(v) = 1 - 0.60 = 0.40$ (reducci\'on m\'axima del 60\%).
+    \item Si ning\'un vecino est\'a infectado: $\mathrm{vig}(v) = 1.00$ (sin efecto).
+\end{itemize}
+
+\paragraph{Propiedades clave.}
+\begin{itemize}[leftmargin=*]
+    \item Se recalcula \textbf{desde cero} cada turno: no es acumulativa ni persistente.
+    \item Es \textbf{completamente local}: $v$ reacciona solo a lo que observa en su entorno inmediato, independientemente del estado global de la epidemia.
+    \item Afecta las aristas \emph{entrantes} a $v$: la cautela de $v$ reduce la probabilidad de que cualquier vecino $u$ infectado lo contagie.
+\end{itemize}
+
+\subsection{Capa 3 -- Fatiga social (\texttt{AjustadorPesosAdaptativo})}
+\label{sec:fatiga}
+
+\subsubsection{Concepto}
+
+Cuando la epidemia lleva varios turnos sin crecer, la poblaci\'on tiende a relajar las precauciones: la gente sale m\'as, baja la guardia, incumple las restricciones. Modelamos este fen\'omeno como un aumento gradual de los pesos cuando $I(t)$ lleva $\geq 5$ turnos consecutivos sin crecer:
+
+\begin{equation}
+\mathrm{fatiga}(t) = \begin{cases}
+1.0 & \text{si } \Delta < 0 \\[6pt]
+1.0 + \min\!\left(0.30,\;\dfrac{\Delta}{10} \times 0.30\right) & \text{si } \Delta \geq 0
+\end{cases}
+\label{eq:fatiga}
+\end{equation}
+
+donde $\Delta = \mathrm{turnosDecreciendo}(t) - 5$. Cuando $I(t)$ vuelve a crecer, $\mathrm{turnosDecreciendo}$ se reinicia a 0 y $\mathrm{fatiga}(t) = 1.0$ de inmediato.
+
+\paragraph{Ejemplo num\'erico.}
+\begin{itemize}
+    \item 5 turnos bajando: $\Delta = 0 \Rightarrow \mathrm{fatiga} = 1.00$ (umbral reci\'en alcanzado).
+    \item 10 turnos bajando: $\Delta = 5 \Rightarrow \mathrm{fatiga} = 1.15$ (+15\%).
+    \item 15+ turnos bajando: $\Delta \geq 10 \Rightarrow \mathrm{fatiga} = 1.30$ (+30\%, m\'aximo).
+\end{itemize}
+
+\paragraph{Interacci\'on con los dem\'as factores.} La fatiga ``empuja hacia arriba'' contrarrestando parcialmente las reducciones de los eventos NPI y de la vigilancia local, sin superar el tope de \textit{clamp} (0.95). Modela el \textbf{efecto memoria}: aunque el confinamiento a\'un tenga efecto ($f_{\text{eventos}} < 1$), las personas se relajan conforme el peligro parece menor, lo que puede provocar un repunte tard\'io de la epidemia.
+
+\subsection{Integraci\'on: \texttt{AjustadorPesosAdaptativo}}
+\label{sec:ajustador}
+
+\subsubsection{Flujo de actualizaci\'on por turno}
+
+\texttt{AjustadorPesosAdaptativo} es invocado por \texttt{SimulacionService} una vez por turno, despu\'es de que \texttt{GestorEventos} ha evaluado los umbrales:
+
+\begin{algorithm}[H]
+\caption{\texttt{AjustadorPesosAdaptativo.ajustar} -- recompone todos los pesos desde la base}
+\begin{algorithmic}[1]
+\Require Red $G$, factor $f_{\text{eventos}}$, historial $H$ de conteos SIRV
+\State Construir $\mathrm{vig}[v]$ para todo $v \in V$ \Comment{ecuaci\'on~(\ref{eq:vigilancia})}
+\State Calcular $\mathrm{fatiga}$ a partir de $H$ \Comment{ecuaci\'on~(\ref{eq:fatiga})}
+\ForAll{arista $(u{\to}v) \in G$}
+    \State $c.\texttt{setProbContagio}\!\big(\,c.\texttt{probContagioBase} \times f_{\text{eventos}} \times \mathrm{vig}[v] \times \mathrm{fatiga}\,\big)$
+\EndFor
+\State \Return \texttt{CambioFatiga} \Comment{\texttt{NINGUNO}, \texttt{INICIADA} o \texttt{REINICIADA}}
+\end{algorithmic}
+\end{algorithm}
+
+\texttt{Contacto} almacena \texttt{probContagioBase} (campo \texttt{final}, calculado una sola vez al construir la red) y \texttt{probContagio} (valor efectivo del turno). El ajustador siempre parte de la base, por lo que no se acumulan errores entre turnos.
+
+\subsubsection{Ejemplo num\'erico compuesto}
+
+Arista P001$\to$P043 en el turno 22:
+\begin{align*}
+w_{\text{base}} &= 0.55 \quad \text{(trabajador de salud, estrato 2, 45 a\~nos)} \\
+f_{\text{eventos}} &= 0.40 \quad \text{(ALERTA\_LEVE $\times$ CUARENTENA ya disparados)} \\
+\mathrm{vig}(\text{P043}) &= 0.52 \quad \text{(60\% de vecinos infectados: $1 - 0.6 \times 0.8 = 0.52$)} \\
+\mathrm{fatiga} &= 1.00 \quad \text{(la epidemia sigue creciendo)} \\
+w_{\text{ef}} &= \mathrm{clamp}(0.55 \times 0.40 \times 0.52 \times 1.00,\; 0.05,\; 0.95) = 0.114
+\end{align*}
+
+Si en el turno 35 la epidemia lleva 8 turnos en declive y todos los NPI est\'an activos:
+\begin{align*}
+f_{\text{eventos}} &= 0.08, \quad \mathrm{vig} = 1.00, \quad \mathrm{fatiga} = 1.09 \\
+w_{\text{ef}} &= \mathrm{clamp}(0.55 \times 0.08 \times 1.00 \times 1.09,\; 0.05,\; 0.95) = \mathrm{clamp}(0.048, 0.05, 0.95) = 0.05
+\end{align*}
+
+\subsubsection{Alertas en pantalla}
+
+El m\'etodo retorna el enum \texttt{CambioFatiga \{NINGUNO, INICIADA, REINICIADA\}} para desacoplar el dominio de la presentaci\'on. \texttt{SimulacionService} usa ese valor junto con la lista de eventos disparados por \texttt{GestorEventos} para llamar a los m\'etodos de alerta de \texttt{GraficoSimulacion}:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Evento NPI:} banner naranja (\texttt{ALERTA\_LEVE}), naranja oscuro (\texttt{CUARENTENA}) o rojo (\texttt{LOCKDOWN}), visible 4~s.
+    \item \textbf{Fatiga iniciada:} banner verde (``la poblaci\'on se relaja'').
+    \item \textbf{Fatiga reiniciada:} banner dorado (``precauci\'on restaurada por rebote'').
+\end{itemize}
+
+\subsubsection{Historial de pesos en \texttt{VentanaResultados}}
+
+Para que el usuario pueda observar c\'omo los tres factores afectan el peso de cada nodo, la pestaña \textbf{``Historial de pesos''} de \texttt{VentanaResultados} (solo en modos individual y comparativo) muestra una tabla nodo$\times$turno donde cada celda es el promedio de \texttt{probContagio} de las aristas salientes del nodo en ese turno. En el modo comparativo hay una sub-pesta\~na por cada una de las seis estrategias, lo que permite comparar visualmente c\'omo los distintos conjuntos de vacunados afectan la din\'amica de los pesos a lo largo del brote.
 
 
 
@@ -1271,11 +1377,13 @@ El flujo completo de ejecuci\'on es:
     \item Por cada turno:
     \begin{enumerate}
         \item \texttt{ModeloSIRV.simularTurno(red)}: recolecta nuevos infectados y nuevos recuperados; aplica todos los cambios sincr\'onicamente al final del turno.
-        \item \texttt{GestorEventos.evaluar(red, turno)}: revisa umbrales y modifica los pesos de las aristas si corresponde.
-        \item \texttt{GraficoSimulacion.actualizarTurno(\ldots)}: actualiza colores en pantalla y la barra de turno SIRV.
+        \item \texttt{GestorEventos.evaluar(red, turno)}: revisa umbrales; si se cruza uno, acumula el factor en \texttt{factorAcumuladoEventos} (ya no modifica aristas directamente).
+        \item Registra el conteo $\{S, I, R, V\}$ del turno en el historial.
+        \item \texttt{AjustadorPesosAdaptativo.ajustar(red, factorEventos, historial)}: recompone el peso efectivo de cada arista como $w_{\text{base}} \times f_{\text{eventos}} \times \mathrm{vig}(v) \times \mathrm{fatiga}$. Retorna \texttt{CambioFatiga} para la UI.
+        \item \texttt{GraficoSimulacion.actualizarTurno(\ldots)}: actualiza colores en pantalla, la barra de turno SIRV y los banners de alerta si corresponde.
     \end{enumerate}
     \item Al final, \texttt{CalculadorEstadisticas} calcula las m\'etricas y \texttt{AnalisisComparativo} rankea las estrategias.
-    \item \texttt{VentanaResultados} muestra tabla, ranking y curva $I(t)$.
+    \item \texttt{VentanaResultados} muestra: (a) tabla de m\'etricas con fila ganadora resaltada, (b) ranking con score compuesto, (c) curva $I(t)$ y (d) pesta\~na \textbf{``Historial de pesos''} (solo individual/comparativo) con la evoluci\'on del peso efectivo nodo$\times$turno.
     \item \texttt{ExportadorResultados} y \texttt{GeneradorReportePDF} producen los entregables.
 \end{enumerate}
 
@@ -1293,7 +1401,7 @@ El flujo completo de ejecuci\'on es:
 \textsc{Individual} & Corre una sola estrategia (elegida por el usuario) con visualizaci\'on GraphStream en una ventana. \\
 \textsc{Comparativo} & Corre las seis estrategias sobre la \textbf{misma red} (mismos infectados iniciales) y las muestra en pesta\~nas separadas (\texttt{JTabbedPane}). \\
 \textsc{Experimento por lotes} & Corre \textbf{10\,000 grafos distintos por estrategia} (6 $\times$ 10\,000 = 60\,000 grafos independientes), sin animaci\'on, y promedia los resultados. Veredicto estad\'isticamente robusto. \\
-\textsc{Creaci\'on de nodo} & Permite ver la recreaci\'on de la red nodo a nodo, desde un grafo vac\'io hasta la red completa. \\
+\textsc{Construcci\'on visual} & Anima la generaci\'on de la red fase por fase y arista por arista, con un color distinto por fase: clusters familiares, vecindarios, hubs, long-range y aristas puente. Implementado en \texttt{VisualizadorConstruccionRed} sobre \texttt{GeneradorPoblacion.generarConFases}. \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1313,8 +1421,9 @@ Nuestro \texttt{GraficoSimulacion} envuelve la API de \texttt{GraphStream 2.0} p
 \begin{itemize}
     \item Crea un nodo visual por cada \texttt{Persona} y una arista visual por cada \texttt{Contacto}.
     \item Actualiza el color de cada nodo en cada turno seg\'un su \texttt{EstadoSIRV}: \textcolor{blue}{azul} para Susceptible, \textcolor{red}{rojo} para Infectado, \textcolor{green!50!black}{verde} para Recuperado, \textcolor{orange}{naranja} para Vacunado.
-    \item Actualiza el grosor de las aristas cuando \texttt{GestorEventos} modifica los pesos.
+    \item El grosor de las aristas refleja \texttt{probContagio} efectiva del turno, que cambia cada turno con los tres factores adaptativos.
     \item Muestra una \textbf{barra de turno} debajo del grafo con el conteo SIRV en vivo: \texttt{Turno N \quad S: .. \quad I: .. \quad R: .. \quad V: ..}.
+    \item Muestra \textbf{banners de alerta} sobre el grafo cuando se dispara un evento NPI (naranja / naranja oscuro / rojo seg\'un el evento) o cuando cambia el estado de la fatiga social (verde al iniciar la relajaci\'on, dorado al restaurar la precauci\'on). El banner se oculta autom\'aticamente tras 4~s mediante un \texttt{javax.swing.Timer}.
 \end{itemize}
 
 En modo comparativo, una \texttt{VentanaComparativaTabs} aloja las seis simulaciones en pesta\~nas separadas, todas ejecutadas secuencialmente sobre la misma red.
@@ -1635,6 +1744,19 @@ Identificamos que nuestra implementaci\'on inicial introduc\'ia un sesgo en la c
 \end{enumerate}
 Esto garantiza que las seis estrategias enfrenten \textbf{exactamente la misma condici\'on inicial}, lo que hace que las comparaciones sean estad\'isticamente v\'alidas.
 
+\subsection{Pesos din\'amicos adaptativos (v11)}
+
+M\'as all\'a del requerimiento m\'inimo de ``un mecanismo de actualizaci\'on de pesos'', dise\~namos un sistema de \textbf{tres capas independientes} que operan simult\'aneamente en cada turno (ecuaci\'on~(\ref{eq:peso_efectivo})):
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Reacci\'on local} (\texttt{AjustadorPesosAdaptativo}): cada nodo reduce la probabilidad de sus aristas entrantes seg\'un la fracci\'on de sus vecinos infectados. Es completamente local y se reinicia cada turno.
+    \item \textbf{Fatiga social} (\texttt{AjustadorPesosAdaptativo}): cuando la epidemia lleva $\geq 5$ turnos sin crecer, los pesos aumentan gradualmente hasta +30\% modelando el relajamiento de precauciones; se reinicia cuando la epidemia rebota.
+    \item \textbf{Retroalimentaci\'on visual}: banners de color en \texttt{GraficoSimulacion} hacen visible al usuario el momento exacto en que el modelo cambia el comportamiento de la red, tanto para los NPI como para los cambios de fatiga.
+    \item \textbf{Historial de pesos}: la pesta\~na ``Historial de pesos'' de \texttt{VentanaResultados} (solo individual/comparativo) muestra una tabla nodo$\times$turno con la evoluci\'on del peso efectivo, permitiendo analizar c\'omo cada estrategia de vacunaci\'on afecta la din\'amica de los pesos.
+\end{itemize}
+
+Ninguna de estas tres capas exige un nuevo par\'ametro del usuario: son comportamientos emergentes de la propia estructura de la red y del estado de la epidemia.
+
 \subsection{Glosario de m\'etricas integrado en los reportes}
 
 Nuestros reportes PDF inclu\'ian m\'etricas (pico, $R_0$, contenci\'on, etc.) pero no explicaban qu\'e significaban ni qu\'e valores eran ``buenos''. Decidimos a\~nadir una p\'agina final de \textbf{Glosario de m\'etricas -- Gu\'ia de interpretaci\'on} (v9) con una tabla de 11 variables (12 en el reporte de lotes, agregando ``Victorias''), explicando qu\'e mide cada una y qu\'e direcci\'on es favorable desde el punto de vista de salud p\'ublica. Este glosario hace que el reporte sea autoexplicativo incluso para un lector sin formaci\'on epidemiol\'ogica.
@@ -1652,23 +1774,9 @@ Nuestros reportes PDF inclu\'ian m\'etricas (pico, $R_0$, contenci\'on, etc.) pe
 
     \item \textbf{Comprobamos que las estrategias estructurales superan consistentemente a la aleatoria} en la red de 300 nodos, confirmando el valor de incorporar informaci\'on topol\'ogica para decidir a qui\'enes vacunar primero.
 
-    \item \textbf{La estrategia H\'ibrida (aporte propio) result\'o la m\'as efectiva de forma consistente} a lo largo del experimento por lotes: al combinar posici\'on estructural (intermediaci\'on topol\'ogica y grado) con perfil demogr\'afico individual (edad y estrato), logr\'o mayor contenci\'on que \textit{Betweenness} y \textit{Hubs} de forma aislada, confirmando las hip\'otesis H3 y H7.
+    \item \textbf{La estrategia HUBS result\'o ganadora de forma consistente} en el experimento por lotes: con 6\,980 victorias sobre 10\,000 corridas (69{,}8\%), un pico promedio de 131 infectados y una contenci\'on del 40\%, supera a todas las dem\'as estrategias. Su fortaleza radica en bloquear los nodos de mayor alcance (hubs comunitarios de las fases 4 y 4.5) eliminando as\'i los canales de contagio inter-comunidad con un solo movimiento. La estrategia H\'ibrida (aporte propio) qued\'o cuarta (547 victorias), superada por Betweenness (1\,405) y Dijkstra Ponderado (760).
 
-    % ============================================================
-    % [COMPLETAR antes de la entrega final con datos del PDF:]
-    % - Pico de infectados de H\'ibrida vs. las dem\'as estrategias
-    % - Porcentaje de contenci\'on final de la estrategia ganadora
-    % - Score compuesto del ganador y del segundo lugar
-    % - N\'umero de victorias de H\'ibrida en las 10.000 corridas
-    % ============================================================
-
-    \item \textbf{El modo por lotes (10\,000 grafos por estrategia, 60\,000 simulaciones en total) valida la robustez estad\'istica del veredicto.} Con una muestra de esta magnitud, el ranking final no es producto de una semilla favorable: la estrategia ganadora lo es porque domina de forma consistente sobre toda la distribuci\'on de topolog\'ias posibles.
-
-    % ============================================================
-    % [COMPLETAR antes de la entrega final con datos del PDF:]
-    % - Victorias acumuladas de cada estrategia (ej: H\'ibrida: X, Betweenness: Y...)
-    % - Margen de diferencia entre el primero y el segundo
-    % ============================================================
+    \item \textbf{El modo por lotes (10\,000 grafos por estrategia, 60\,000 simulaciones en total) valida la robustez estad\'istica del veredicto.} Con una muestra de esta magnitud, el ranking final no es producto de una semilla favorable: HUBS 6\,980 victorias, BETWEENNESS 1\,405, Dijkstra Ponderado 760, H\'IBRIDA 547, COMUNIDADES 291, ALEATORIA 17. El margen entre el primero y el segundo (5\,575 victorias) es estad\'isticamente concluyente.
 
     \item \textbf{La arquitectura por capas} nos permiti\'o agregar funcionalidades sin alterar el n\'ucleo del dominio: el paso de cinco estrategias a seis (\textit{Dijkstra Ponderado}), de un modo a tres (individual, comparativo, lotes) y de exportaci\'on TXT a TXT + PDF se realiz\'o sin modificar ninguna clase del paquete \texttt{domain}.
 
@@ -1682,7 +1790,7 @@ Nuestros reportes PDF inclu\'ian m\'etricas (pico, $R_0$, contenci\'on, etc.) pe
 \begin{itemize}[leftmargin=*]
     \item Nuestro modelo asume \textbf{inmunidad permanente} tras la recuperaci\'on. Enfermedades reales como la influenza o el COVID-19 muestran reinfecciones que no capturamos.
     \item Calibramos los pesos $\alpha, \beta, \gamma, \delta$ de la estrategia H\'ibrida heur\'isticamente con criterio de salud p\'ublica, no mediante optimizaci\'on autom\'atica.
-    \item Dejamos los factores de los eventos NPI (0.80, 0.50, 0.20) est\'aticos. En la realidad, la efectividad de las medidas depende del cumplimiento y de la fatiga social.
+    \item Los factores de los eventos NPI (0.80, 0.50, 0.20) son est\'aticos y predefinidos. En la realidad, la efectividad de cada medida depende del contexto sanitario y pol\'itico. La \textbf{fatiga social} s\'i est\'a modelada (sube hasta +30\% cuando la epidemia no crece), pero la intensidad de los NPI no se ajusta din\'amicamente.
     \item No modelamos \textbf{aristas que aparecen o desaparecen} en el tiempo (nuestra red es est\'atica en estructura, solo cambian los pesos).
     \item La estrategia \textit{Betweenness} utiliza caminos m\'inimos topol\'ogicos (por saltos). Una variante que incorpore los pesos de contagio podr\'ia mejorar su efectividad a costa de mayor complejidad computacional.
 \end{itemize}
@@ -1697,6 +1805,8 @@ Como l\'ineas futuras de extensi\'on planteamos:
     \item \textbf{Aristas din\'amicas:} permitir que las relaciones aparezcan y desaparezcan en el tiempo (rotaci\'on laboral, movilidad).
     \item \textbf{Estudio de sensibilidad}: ver c\'omo cambia el ranking si la cuota de vacunaci\'on baja del 20\% al 10\% o sube al 30\%.
     \item \textbf{Comparaci\'on contra datos reales}: validar nuestras curvas $I(t)$ contra series temporales de brotes hist\'oricos (gripe AH1N1, COVID-19) ajustando $\text{probBase}$ y \texttt{diasRecuperacion}.
+    \item \textbf{Calibraci\'on de la fatiga social}: actualmente los par\'ametros \texttt{UMBRAL\_FATIGA\_TURNOS} (5 turnos) y \texttt{FATIGA\_MAX} (30\%) son fijos. Una extensi\'on interesante ser\'ia ajustarlos por estrategia de vacunaci\'on o seg\'un el tipo de NPI activo.
+    \item \textbf{Calibraci\'on de la vigilancia local}: el par\'ametro \texttt{VIGILANCIA\_MAX} (60\%) es uniforme para todos los nodos; en la realidad depender\'ia del estrato y la ocupaci\'on del individuo.
 \end{itemize}
 
 \newpage
@@ -1898,8 +2008,8 @@ mvn exec:java -Dexec.args="--consola"
 \subsection{Uso b\'asico}
 
 \begin{enumerate}
-    \item Seleccionar modo: \textbf{individual}, \textbf{comparativo} o \textbf{experimento por lotes}.
-    \item Configurar par\'ametros: tama\~no de la red ($N = 300$ o personalizado), estrategia (solo en individual), n\'umero de grafos (solo en lotes -- por defecto 10\,000), turnos m\'aximos, d\'ias de recuperaci\'on.
+    \item Seleccionar modo: \textbf{individual}, \textbf{comparativo}, \textbf{experimento por lotes} o \textbf{construcci\'on visual de la red}.
+    \item Configurar par\'ametros: tama\~no de la red ($N = 300$ o personalizado), estrategia (solo en individual), n\'umero de grafos (solo en lotes, sin l\'imite), pausa entre fases en ms (solo en construcci\'on visual), turnos m\'aximos, d\'ias de recuperaci\'on.
     \item Opcionalmente, marcar ``Cargar red desde CSV'' para usar los archivos de \texttt{data/}.
     \item Ejecutar.
     \item Al finalizar, exportar resultados a \textbf{TXT}, \textbf{PDF} o ambos.

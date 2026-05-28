@@ -290,23 +290,72 @@ vacunar el 20% con mayor score
 
 ---
 
-## 5. Mecanismo de actualización de pesos — Eventos por umbral
+## 5. Mecanismo de actualización de pesos
 
-Matemáticamente, los eventos representan una perturbación externa aplicada al conjunto de pesos E del grafo en el turno t* en que se cruza el umbral θ:
+### 5.1 Eventos por umbral (NPI)
+
+Matemáticamente, los eventos representan una perturbación externa aplicada al factor acumulado en el turno t* en que se cruza el umbral θ:
 
 ```
-∀ (u,v) ∈ E : w'(u,v) = w(u,v) × λ_evento    si infectados(t*) / N ≥ θ
+factorEventos(t) = ∏ λ_k    para todo evento k con umbral θ_k ≤ porcentajeInfectados(t*)
 ```
 
-Donde λ_evento ∈ (0, 1) es el factor de atenuación del evento (cuarentena = reducción del 50%, lockdown = reducción del 80%).
+Este factor se acumula multiplicativamente y se compone con los demás factores del turno (ver §5.2).
 
-Esto modela matemáticamente cómo las políticas de salud pública reducen la transmisibilidad efectiva de la enfermedad al disminuir la frecuencia e intensidad de los contactos sociales.
-
-| Evento | Umbral θ | Factor λ | Reducción efectiva |
+| Evento | Umbral θ | Factor λ | Efecto acumulado (los tres juntos) |
 |---|---|---|---|
-| Alerta leve | 0.30 | 0.80 | 20% |
-| Cuarentena | 0.50 | 0.50 | 50% |
-| Lockdown | 0.70 | 0.20 | 80% |
+| Alerta leve | 0.30 | 0.80 | × 0.80 |
+| Cuarentena | 0.50 | 0.50 | × 0.40 |
+| Lockdown | 0.70 | 0.20 | × 0.08 |
+
+### 5.2 Pesos adaptativos — reacción local y fatiga social (v11)
+
+A partir de v11, el peso efectivo de cada arista se recalcula en cada turno como composición de tres factores:
+
+```
+w_ef(u→v, t) = clamp( w_base(u→v) × factorEventos(t) × vigilancia(v, t) × fatiga(t),
+                       0.05, 0.95 )
+```
+
+**Factor de reacción local — vigilancia(v, t)**
+
+El nodo destino v reduce la probabilidad de recibir contagio según la fracción de sus vecinos entrantes que están actualmente infectados:
+
+```
+vigilancia(v, t) = 1 − VIGILANCIA_MAX × (|{u : (u→v) ∈ E ∧ estado(u,t) = I}| / |{u : (u→v) ∈ E}|)
+
+VIGILANCIA_MAX = 0.60
+```
+
+Interpretación: si todos los vecinos que apuntan a v están infectados, v es un 60% más cuidadoso y la prob de que cualquiera de ellos lo contagie baja en esa proporción. Si ninguno está infectado, no hay reducción. Este factor es completamente local: v reacciona a su entorno inmediato, no al estado global de la epidemia.
+
+**Factor de fatiga social — fatiga(t)**
+
+Si el número de infectados I(t) lleva UMBRAL = 5 turnos consecutivos sin crecer, la gente se relaja y los pesos aumentan gradualmente (hasta un máximo del 30%):
+
+```
+sea Δ = turnosDecreciendo(t) − UMBRAL_FATIGA_TURNOS
+
+si Δ < 0:  fatiga(t) = 1.0               (no hay relajación)
+si Δ ≥ 0:  fatiga(t) = 1.0 + min(0.30, Δ / 10 × 0.30)
+```
+
+Cuando I(t) vuelve a crecer, `turnosDecreciendo` se reinicia a 0 y `fatiga(t) = 1.0`. Este factor modela el efecto memoria: una epidemia que lleva semanas bajando lleva a la población a relajar sus precauciones, aunque los NPI aún tengan efecto (factorEventos < 1).
+
+**Interacción entre factores**
+
+Los tres factores se componen multiplicativamente. Ejemplo:
+
+```
+w_base = 0.50
+factorEventos = 0.40  (ALERTA_LEVE × CUARENTENA = 0.80 × 0.50)
+vigilancia(v) = 0.64  (40% de vecinos infectados → 1 - 0.6 × 0.4)
+fatiga        = 1.20  (12 turnos sin crecer → 2/10 × 30% = +6%, pero supongamos 12 turnos)
+
+w_ef = 0.50 × 0.40 × 0.64 × 1.20 = 0.154
+```
+
+La fatiga "empuja hacia arriba" contrarrestando parcialmente las reducciones de eventos y vigilancia, sin nunca superar el máximo del clamp (0.95).
 
 ---
 

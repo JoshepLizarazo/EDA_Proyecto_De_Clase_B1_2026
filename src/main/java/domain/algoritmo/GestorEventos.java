@@ -1,6 +1,5 @@
 package domain.algoritmo;
 
-import domain.model.Contacto;
 import domain.model.EventoEpidemiologico;
 import domain.model.RedSocial;
 import domain.value.EstadoSIRV;
@@ -12,12 +11,12 @@ import java.util.List;
 /**
  * Modela intervenciones no farmacéuticas (NPI) que modifican la red durante la simulación.
  *
- * Fundamento epidemiológico:
- *   En una epidemia real, los gobiernos reaccionan cuando la carga de infectados
- *   supera ciertos umbrales. Estas intervenciones reducen la probabilidad de contagio
- *   de todos los contactos (aristas) de la red: la gente se aísla, usa tapabocas,
- *   evita lugares concurridos. Modelamos esto multiplicando el peso de TODAS las
- *   aristas por un factor reductor cuando se supera cada umbral.
+ * Responsabilidad en v11:
+ *   GestorEventos ya NO modifica los pesos de las aristas directamente. En cambio,
+ *   rastrea el producto acumulado de los factores de todos los eventos disparados
+ *   ({@code factorAcumuladoEventos}) y lo expone via {@code getFactorAcumuladoEventos()}.
+ *   {@code AjustadorPesosAdaptativo} usa ese valor junto con la vigilancia local y la
+ *   fatiga social para recomponer el peso efectivo de cada arista en cada turno.
  *
  * Tres eventos predefinidos (en orden creciente de umbral):
  *
@@ -26,28 +25,22 @@ import java.util.List;
  *
  *   CUARENTENA (umbral 50%, factor 0.50):
  *     Medidas de distanciamiento social, teletrabajo, cierres parciales.
- *     Reduce contagio a la mitad respecto del valor actual de la arista.
- *     Nota: los factores son ACUMULATIVOS. Si ya se aplicó ALERTA_LEVE (×0.80)
- *     y luego CUARENTENA (×0.50), la prob final es la original × 0.80 × 0.50 = × 0.40.
  *
  *   LOCKDOWN (umbral 70%, factor 0.20):
- *     Confinamiento estricto. Reduce contagio al 20% del valor actual.
- *     Combinado con los anteriores: prob final = original × 0.80 × 0.50 × 0.20 = × 0.08.
+ *     Confinamiento estricto.
  *
- * Cada evento solo se dispara UNA VEZ por simulación (flag estaDisparado()).
- * La evaluación se hace turno a turno desde IniciarSimulacionCommand.
+ *   Factores acumulativos: si se disparan los tres,
+ *     factorAcumuladoEventos = 0.80 × 0.50 × 0.20 = 0.08
  *
- * Efecto en la simulación:
- *   Al dispararse un evento, se reducen los pesos de las aristas de la red.
- *   Esto hace que la simulación adapte dinámicamente el ritmo de propagación,
- *   reflejando cómo las medidas sociales "aplanan la curva" de infectados.
+ * Cada evento se dispara exactamente UNA VEZ por simulación (flag estaDisparado()).
  *
- * @see ModeloSIRV que usa las probContagio de las aristas en cada turno
- * @see IniciarSimulacionCommand que llama evaluar() después de cada simularTurno()
+ * @see AjustadorPesosAdaptativo que aplica factorAcumuladoEventos junto a vigilancia y fatiga
+ * @see ModeloSIRV que usa las probContagio efectivas en cada turno
  */
 public class GestorEventos {
 
     private final List<EventoEpidemiologico> eventos;
+    private double factorAcumuladoEventos = 1.0;
 
     public GestorEventos() {
         eventos = new ArrayList<>();
@@ -58,8 +51,9 @@ public class GestorEventos {
     }
 
     /**
-     * Evalúa si algún umbral fue superado y dispara los eventos correspondientes.
-     * Modifica los pesos de todas las aristas de la red si se activa un evento.
+     * Evalúa si algún umbral fue superado y marca los eventos correspondientes.
+     * NO modifica las aristas directamente: actualiza {@code factorAcumuladoEventos}
+     * y deja que {@code AjustadorPesosAdaptativo} aplique el factor en el mismo turno.
      *
      * @param red         grafo con el estado actual
      * @param turnoActual número del turno (para el log)
@@ -75,19 +69,22 @@ public class GestorEventos {
 
         for (EventoEpidemiologico evento : eventos) {
             if (!evento.estaDisparado() && porcentaje >= evento.getUmbral()) {
-                // Aplicar factor a todas las aristas del grafo
-                for (Contacto c : red.getTodosLosContactos()) {
-                    c.aplicarFactor(evento.getFactorMultiplicador());
-                }
+                factorAcumuladoEventos *= evento.getFactorMultiplicador();
                 evento.disparar();
                 disparados.add(evento);
-                System.out.printf("  [Turno %2d] *** %s activado (%.0f%% infectados, aristas × %.2f) ***%n",
+                System.out.printf("  [Turno %2d] *** %s activado (%.0f%% infectados, "
+                        + "aristas × %.2f, factor acumulado × %.3f) ***%n",
                         turnoActual, evento.getNombre(),
-                        evento.getUmbral() * 100, evento.getFactorMultiplicador());
+                        evento.getUmbral() * 100,
+                        evento.getFactorMultiplicador(),
+                        factorAcumuladoEventos);
             }
         }
         return disparados;
     }
+
+    /** Factor producto de todos los eventos NPI disparados hasta ahora. Empieza en 1.0. */
+    public double getFactorAcumuladoEventos() { return factorAcumuladoEventos; }
 
     public List<EventoEpidemiologico> getEventos() {
         return Collections.unmodifiableList(eventos);

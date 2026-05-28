@@ -198,6 +198,9 @@ public class VentanaMenuPrincipal extends JFrame {
 
     private void ejecutarSimulacion(ConfiguracionDto config, ModoSimulacion modo) {
         boolean individual = modo == ModoSimulacion.INDIVIDUAL;
+        // El historial de pesos por turno solo se captura en individual/comparativo
+        // (no en lote, donde acumularía memoria con N grafos).
+        config.setCapturarHistorialPesos(true);
         DialogoProgreso progreso = new DialogoProgreso(this,
                 individual ? "Ejecutando simulación..." : "Ejecutando 6 estrategias...");
 

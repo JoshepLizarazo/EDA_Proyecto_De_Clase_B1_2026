@@ -6,6 +6,7 @@
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/application/dto/ResultadoSimulacionDto.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/application/service/SimulacionService.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/application/service/VacunacionService.java
+/home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/domain/algoritmo/AjustadorPesosAdaptativo.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/domain/algoritmo/BFSPonderado.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/domain/algoritmo/GestorEventos.java
 /home/serafin/NetBeansProjects/Trabas_y_Grafos/src/main/java/domain/algoritmo/ModeloSIRV.java
