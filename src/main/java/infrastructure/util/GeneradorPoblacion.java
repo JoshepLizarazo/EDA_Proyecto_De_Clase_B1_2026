@@ -32,10 +32,24 @@ public class GeneradorPoblacion {
 
     // ── API pública ───────────────────────────────────────────────────────────
 
+    /** Listener invocado tras completar cada fase de construcción. */
+    @FunctionalInterface
+    public interface FaseListener {
+        void onFase(int numero, String nombre, RedSocial red);
+    }
+
     /**
      * Genera una RedSocial completa con {@code tamano} personas.
      */
     public RedSocial generar(int tamano, long semilla) {
+        return generarConFases(tamano, semilla, null);
+    }
+
+    /**
+     * Igual que {@link #generar} pero invoca {@code listener} tras cada fase.
+     * Útil para visualización paso a paso.
+     */
+    public RedSocial generarConFases(int tamano, long semilla, FaseListener listener) {
         Random rand = new Random(semilla);
         RedSocial red = new RedSocial();
         List<Persona> personas = new ArrayList<>();
@@ -46,24 +60,28 @@ public class GeneradorPoblacion {
             red.agregarPersona(p);
             personas.add(p);
         }
+        if (listener != null) listener.onFase(1, "Personas generadas", red);
 
         // Fase 2: clusters familiares (4–7 personas por familia)
         List<List<Persona>> familias = formarFamilias(personas, rand);
-        for (List<Persona> familia : familias) {
-            conectarFamilia(familia, red, rand);
-        }
+        for (List<Persona> familia : familias) conectarFamilia(familia, red, rand);
+        if (listener != null) listener.onFase(2, "Clusters familiares", red);
 
         // Fase 3: vecindarios (familias del mismo estrato conectadas moderadamente)
         conectarVecindarios(familias, red, rand);
+        if (listener != null) listener.onFase(3, "Vecindarios", red);
 
         // Fase 4: hubs comunitarios (mercado, iglesia, transporte)
         crearHubsComunitarios(personas, red, rand);
+        if (listener != null) listener.onFase(4, "Hubs comunitarios", red);
 
         // Fase 4.5: conexiones de largo alcance (efecto small-world)
         conectarConocidosLejanos(personas, red, rand);
+        if (listener != null) listener.onFase(5, "Conexiones long-range", red);
 
         // Fase 5: garantizar un único componente conexo
         garantizarConectividad(personas, red, rand);
+        if (listener != null) listener.onFase(6, "Conectividad garantizada", red);
 
         return red;
     }

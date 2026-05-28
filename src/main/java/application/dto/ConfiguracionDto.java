@@ -13,6 +13,9 @@ import java.util.concurrent.ThreadLocalRandom;
  */
 public class ConfiguracionDto {
 
+    /** Fracción de la población que arranca infectada (paciente cero). */
+    public static final double FRACCION_INFECTADOS_INICIALES = 0.05;
+
     private int tamanoRed;
     private int turnosMaximos;
     private EstrategiaVacunacion estrategia;
@@ -25,6 +28,9 @@ public class ConfiguracionDto {
     private String archivoContactos;
     private boolean mostrarVisualizacion;
     private int pausaVisualizacionMs;
+    // Solo individual/comparativo capturan el historial de pesos por turno.
+    // El modo lote lo deja en false para no acumular memoria con N grafos.
+    private boolean capturarHistorialPesos;
 
     public ConfiguracionDto() {
         tamanoRed             = 80;
@@ -33,12 +39,13 @@ public class ConfiguracionDto {
         semillaAleatoria      = ThreadLocalRandom.current().nextLong(); // automática
         probInfeccionBase     = 0.20;
         diasRecuperacion      = 7;
-        cantidadPacientesCero = 5;
+        cantidadPacientesCero = calcularInfectadosIniciales(tamanoRed);
         usarCSV               = false;
         archivoPersonas       = "data/personas_red1.csv";
         archivoContactos      = "data/contactos_red1.csv";
         mostrarVisualizacion  = true;
         pausaVisualizacionMs  = 1000;
+        capturarHistorialPesos = false;
     }
 
     // ── Getters ────────────────────────────────────────────────────────────────
@@ -55,10 +62,24 @@ public class ConfiguracionDto {
     public String getArchivoContactos()         { return archivoContactos; }
     public boolean isMostrarVisualizacion()     { return mostrarVisualizacion; }
     public int getPausaVisualizacionMs()        { return pausaVisualizacionMs; }
+    public boolean isCapturarHistorialPesos()   { return capturarHistorialPesos; }
 
     // ── Setters ────────────────────────────────────────────────────────────────
 
-    public void setTamanoRed(int v)                      { this.tamanoRed = v; }
+    /**
+     * Al fijar el tamaño de red se recalcula el paciente cero al 5% de la población,
+     * de modo que tanto la UI Swing como la consola y el comparativo lo apliquen sin
+     * duplicar la regla. Para forzar un valor distinto, llamar a
+     * {@link #setCantidadPacientesCero(int)} después de este método.
+     */
+    public void setTamanoRed(int v) {
+        this.tamanoRed = v;
+        this.cantidadPacientesCero = calcularInfectadosIniciales(v);
+    }
+
+    private static int calcularInfectadosIniciales(int n) {
+        return Math.max(1, (int) Math.round(FRACCION_INFECTADOS_INICIALES * n));
+    }
     public void setTurnosMaximos(int v)                  { this.turnosMaximos = v; }
     public void setEstrategia(EstrategiaVacunacion v)    { this.estrategia = v; }
     public void setSemillaAleatoria(long v)              { this.semillaAleatoria = v; }
@@ -70,6 +91,7 @@ public class ConfiguracionDto {
     public void setArchivoContactos(String v)            { this.archivoContactos = v; }
     public void setMostrarVisualizacion(boolean v)       { this.mostrarVisualizacion = v; }
     public void setPausaVisualizacionMs(int v)           { this.pausaVisualizacionMs = v; }
+    public void setCapturarHistorialPesos(boolean v)     { this.capturarHistorialPesos = v; }
 
     @Override
     public String toString() {

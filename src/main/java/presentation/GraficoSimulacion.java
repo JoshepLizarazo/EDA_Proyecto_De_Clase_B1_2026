@@ -4,7 +4,19 @@ import domain.model.Contacto;
 import domain.model.Persona;
 import domain.model.RedSocial;
 import domain.value.EstadoSIRV;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Font;
+import javax.swing.BorderFactory;
 import javax.swing.JComponent;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
+import javax.swing.Timer;
+import javax.swing.WindowConstants;
 import org.graphstream.graph.Graph;
 import org.graphstream.graph.Node;
 import org.graphstream.graph.implementations.SingleGraph;
@@ -56,32 +68,48 @@ public class GraficoSimulacion {
             }
             """;
 
+    // Colores del banner de alertas por tipo de evento
+    private static final Color COLOR_ALERTA_LEVE  = new Color(230, 150, 20);   // naranja
+    private static final Color COLOR_CUARENTENA   = new Color(200, 80,  20);   // naranja oscuro
+    private static final Color COLOR_LOCKDOWN     = new Color(170, 25,  25);   // rojo oscuro
+    private static final Color COLOR_FATIGA       = new Color(30,  130, 80);   // verde
+    private static final Color COLOR_FATIGA_FIN   = new Color(160, 110, 20);   // dorado
+    private static final Color COLOR_FONDO_BARRA  = new Color(33,  37,  43);   // gris oscuro (estado normal)
+
     private Graph graph;
     private Viewer viewer;
     private boolean activo = false;
     private int totalNodos = 0;
+    private JLabel etiquetaTurno;
+    private JLabel etiquetaAlerta;
+    private Timer timerAlerta;
 
     /**
-     * Inicializa la ventana standalone y dibuja el grafo inicial.
-     * Si GraphStream no puede abrir una ventana (headless), deshabilita la UI silenciosamente.
+     * Inicializa la ventana standalone y dibuja el grafo inicial, con el contador
+     * de turno al pie. Si GraphStream no puede abrir una ventana (headless),
+     * deshabilita la UI silenciosamente.
      */
     public void inicializar(RedSocial red) {
-        try {
-            System.setProperty("org.graphstream.ui", "swing");
-            construirGrafo(red);
-            graph.display();
-            activo = true;
-        } catch (Exception e) {
-            System.out.println("  [Visualización no disponible: " + e.getMessage() + "]");
-            activo = false;
-        }
+        JComponent panel = inicializarEmbebido(red);
+        if (panel == null) return;
+        SwingUtilities.invokeLater(() -> {
+            JFrame f = new JFrame("Epidemia SIRV");
+            f.getContentPane().setLayout(new BorderLayout());
+            f.getContentPane().add(panel, BorderLayout.CENTER);
+            f.setPreferredSize(new Dimension(920, 720));
+            f.pack();
+            f.setLocationRelativeTo(null);
+            f.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+            f.setVisible(true);
+        });
     }
 
     /**
-     * Inicializa el grafo y retorna su vista Swing como JComponent, listo para
-     * insertarse en un contenedor (ej. JTabbedPane). No abre ventana propia.
+     * Inicializa el grafo y retorna un JComponent con la vista de GraphStream
+     * (centro) y una etiqueta de turno al pie (sur), listo para insertarse en un
+     * contenedor (ej. JTabbedPane) o en la ventana standalone.
      *
-     * @return el ViewPanel de GraphStream, o {@code null} si la visualización no está disponible.
+     * @return el panel envuelto, o {@code null} si la visualización no está disponible.
      */
     public JComponent inicializarEmbebido(RedSocial red) {
         try {
@@ -92,12 +120,91 @@ public class GraficoSimulacion {
             if (totalNodos <= 100) viewer.enableAutoLayout();
             ViewPanel view = (ViewPanel) viewer.addDefaultView(false);
             activo = true;
-            return view;
+            return envolverConEtiqueta(view);
         } catch (Exception e) {
             System.out.println("  [Visualización embebida no disponible: " + e.getMessage() + "]");
             activo = false;
             return null;
         }
+    }
+
+    /** Envuelve la vista del grafo con barra superior de alertas y barra inferior de turno. */
+    private JComponent envolverConEtiqueta(JComponent vista) {
+        // ── Barra inferior: turno + conteo SIRV ──────────────────────────────
+        etiquetaTurno = new JLabel("Turno 0", SwingConstants.CENTER);
+        etiquetaTurno.setOpaque(true);
+        etiquetaTurno.setBackground(COLOR_FONDO_BARRA);
+        etiquetaTurno.setForeground(new Color(232, 234, 238));
+        etiquetaTurno.setFont(etiquetaTurno.getFont().deriveFont(Font.BOLD, 13f));
+        etiquetaTurno.setBorder(BorderFactory.createEmptyBorder(7, 10, 7, 10));
+
+        // ── Barra superior: banner de alertas ────────────────────────────────
+        etiquetaAlerta = new JLabel(" ", SwingConstants.CENTER);
+        etiquetaAlerta.setOpaque(true);
+        etiquetaAlerta.setBackground(COLOR_FONDO_BARRA);
+        etiquetaAlerta.setForeground(new Color(232, 234, 238));
+        etiquetaAlerta.setFont(etiquetaAlerta.getFont().deriveFont(Font.BOLD, 13f));
+        etiquetaAlerta.setBorder(BorderFactory.createEmptyBorder(7, 10, 7, 10));
+        etiquetaAlerta.setVisible(false);  // oculta hasta que llegue la primera alerta
+
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(etiquetaAlerta, BorderLayout.NORTH);
+        panel.add(vista,          BorderLayout.CENTER);
+        panel.add(etiquetaTurno,  BorderLayout.SOUTH);
+        return panel;
+    }
+
+    /**
+     * Muestra un mensaje de alerta en el banner superior durante 4 segundos,
+     * luego lo oculta automáticamente.
+     *
+     * Llamado desde SimulacionService cuando se dispara un evento NPI o cambia la fatiga.
+     *
+     * @param texto   texto del mensaje
+     * @param fondo   color de fondo del banner
+     * @param textColor color del texto
+     */
+    public void mostrarAlerta(String texto, Color fondo, Color textColor) {
+        if (!activo || etiquetaAlerta == null) return;
+        SwingUtilities.invokeLater(() -> {
+            // Cancelar cualquier timer anterior para no ocultar la nueva alerta antes de tiempo
+            if (timerAlerta != null && timerAlerta.isRunning()) timerAlerta.stop();
+
+            etiquetaAlerta.setText(texto);
+            etiquetaAlerta.setBackground(fondo);
+            etiquetaAlerta.setForeground(textColor);
+            etiquetaAlerta.setVisible(true);
+
+            // Auto-ocultar después de 4 segundos
+            timerAlerta = new Timer(4000, e -> {
+                etiquetaAlerta.setVisible(false);
+                ((Timer) e.getSource()).stop();
+            });
+            timerAlerta.setRepeats(false);
+            timerAlerta.start();
+        });
+    }
+
+    /** Atajos de color para cada tipo de evento predefinido. */
+    public void alertaEventoNPI(String nombreEvento) {
+        Color fondo = switch (nombreEvento.toLowerCase()) {
+            case "alerta leve" -> COLOR_ALERTA_LEVE;
+            case "cuarentena"  -> COLOR_CUARENTENA;
+            case "lockdown"    -> COLOR_LOCKDOWN;
+            default            -> COLOR_CUARENTENA;
+        };
+        mostrarAlerta("⚠  " + nombreEvento.toUpperCase() + " — Medidas de bioseguridad activadas",
+                fondo, Color.WHITE);
+    }
+
+    public void alertaFatigaIniciada() {
+        mostrarAlerta("↗  FATIGA SOCIAL — Epidemia en descenso: la población se relaja",
+                COLOR_FATIGA, Color.WHITE);
+    }
+
+    public void alertaFatigaReiniciada() {
+        mostrarAlerta("↑  NUEVA ALZA — Precaución restaurada por rebote de infectados",
+                COLOR_FATIGA_FIN, Color.WHITE);
     }
 
     /** Construye nodos y aristas del grafo a partir de la RedSocial. */
@@ -163,7 +270,20 @@ public class GraficoSimulacion {
                 Node n = graph.getNode(p.getId());
                 if (n != null) n.setAttribute("ui.style", estiloNodo(p.getEstado()));
             }
+            actualizarEtiquetaTurno(red, turnoActual);
         } catch (Exception ignored) {}
+    }
+
+    /** Refresca la barra inferior con el turno y el conteo de cada estado SIRV. */
+    private void actualizarEtiquetaTurno(RedSocial red, int turno) {
+        if (etiquetaTurno == null) return;
+        int s = red.getPersonasPorEstado(EstadoSIRV.SUSCEPTIBLE).size();
+        int i = red.getPersonasPorEstado(EstadoSIRV.INFECTADO).size();
+        int r = red.getPersonasPorEstado(EstadoSIRV.RECUPERADO).size();
+        int v = red.getPersonasPorEstado(EstadoSIRV.VACUNADO).size();
+        String texto = String.format(
+                "Turno %d      S: %d      I: %d      R: %d      V: %d", turno, s, i, r, v);
+        SwingUtilities.invokeLater(() -> etiquetaTurno.setText(texto));
     }
 
     /**

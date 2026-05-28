@@ -1,6 +1,6 @@
 # Estructura del Proyecto — Cambios Aplicados
 
-**Última actualización:** 2026-05-17
+**Última actualización:** 2026-05-27
 
 ---
 
@@ -14,6 +14,11 @@
 | v4 | 2026-05-16 | Nueva estrategia `VacunacionComunidades` implementada. `EstrategiaVacunacion` y `VacunacionService` actualizados. |
 | v5 | 2026-05-17 | Simplificación del modelo (sin nombre, sin semilla manual) + 6ª estrategia BFS Ponderado + reporte PDF con gráficos JFreeChart + análisis cuantitativo del ganador + mejora visual GraphStream. Ver detalle abajo. |
 | v6 | 2026-05-17 | Reversión del estilo visual de GraphStream a la versión previa (la nueva versión introducía bugs con la leyenda flotante y el título dinámico). Nuevo flujo del comparativo con `JTabbedPane` de 6 pestañas (una por estrategia). Modo individual ya no ofrece exportar PDF. Ver detalle abajo. |
+| v7 | 2026-05-22 | Interfaz gráfica Swing completa con FlatDarkLaf — 4 ventanas nuevas que reemplazan al menú por consola como modo por defecto. Refinamiento visual integral del `GeneradorReportePDF` (paleta unificada, hero banner, tabla zebra con ganador destacado, score apilado). La consola sigue disponible vía `--consola` o headless. Ver detalle abajo. |
+| v8 | 2026-05-23 | Comparación justa (paciente cero al 15% fijado antes de vacunar, idéntico para las 6 estrategias), barra de turno con conteo SIRV bajo el grafo y nuevo modo por lotes (N grafos distintos por estrategia, comparación promedio + acumulada). Ver detalle abajo. |
+| v9 | 2026-05-23 | Glosario de métricas en los PDFs: ambos generadores (`GeneradorReportePDF` y `GeneradorReporteLotePDF`) agregan una página final "Glosario de métricas — Guía de interpretación" que explica cada variable (S, I, R, V, pico, t-pico, duración, afectados, contención %, R0, score compuesto, victorias), qué mide y qué valores son favorables. Ver detalle abajo. |
+| v10 | 2026-05-26 | Infectados iniciales 15% → **5%** de la población. Nuevo **modo "Construcción visual de la red"** (4ª opción) que anima la generación fase por fase y arista por arista (`VisualizadorConstruccionRed` + `GeneradorPoblacion.generarConFases`). Límite del spinner "Grafos por estrategia" del modo lote removido (antes tope 1000, ahora ilimitado). Ver detalle abajo. |
+| v11 | 2026-05-27 | **Pesos dinámicos adaptativos** — nuevo `AjustadorPesosAdaptativo` que recompone los pesos de todas las aristas cada turno: `base × factorEventos × vigilanciaLocal × fatiga`. `GestorEventos` deja de modificar aristas directamente y expone `factorAcumuladoEventos`. `Contacto` añade `probContagioBase` inmutable. Ver detalle abajo. |
 
 ---
 
@@ -21,6 +26,7 @@
 
 ```
 src/main/java/
+├── Context/                       (documentación viva del proyecto, sin código)
 ├── domain/
 │   ├── model/        → package domain.model
 │   ├── value/        → package domain.value
@@ -30,9 +36,10 @@ src/main/java/
 │   ├── dto/          → package application.dto
 │   └── command/      → package application.command
 ├── presentation/     → package presentation
-└── infrastructure/
-    ├── persistence/  → package infrastructure.persistence
-    └── util/         → package infrastructure.util
+├── infrastructure/
+│   ├── persistence/  → package infrastructure.persistence
+│   └── util/         → package infrastructure.util
+└── _smoketest/       → package _smoketest          (temporal, eliminable)
 ```
 
 ---
@@ -597,3 +604,599 @@ entre pestañas es qué nodos están vacunados y cómo evolucionó la epidemia.
   compuesto rankea, el reporte PDF se sigue exportando si se solicita.
 - La ventana de tabs solo se crea cuando el usuario activa visualización; en
   headless no se intenta abrir Swing.
+
+---
+
+## v7 — Interfaz Swing + refinamiento visual del PDF (2026-05-22)
+
+Hasta v6 el flujo de uso era 100% por consola: el usuario corría
+`mvn exec:java`, navegaba por menús de texto, y la única ventana gráfica era el
+grafo de GraphStream. En v7 esa fricción desaparece: el programa abre una
+**interfaz Swing oscura y moderna** (FlatDarkLaf) con tres ventanas — menú
+principal, configuración y resultados — y la consola queda como fallback para
+entornos sin GUI o usuarios que prefieren CLI. En paralelo, el reporte PDF
+recibió una refacción visual completa: paleta consistente, hero banner,
+tabla zebra con ganador destacado, leyenda de colores en barras, y desglose
+del score apilado.
+
+### 1. Nueva dependencia — FlatLaf 3.5.4
+
+```xml
+<dependency>
+    <groupId>com.formdev</groupId>
+    <artifactId>flatlaf</artifactId>
+    <version>3.5.4</version>
+</dependency>
+```
+
+Se eligió FlatDarkLaf porque:
+- API simple — un único `FlatDarkLaf.setup()` antes de instanciar Swing.
+- Estética alineada con NetBeans/IntelliJ — familiar para el evaluador.
+- Permite personalizar `arc` (esquinas redondeadas) por componente vía
+  `UIManager.put`.
+
+`Main.java` activa FlatDarkLaf y configura los `arc` antes de crear ningún
+componente:
+
+```java
+com.formdev.flatlaf.FlatDarkLaf.setup();
+UIManager.put("Button.arc", 12);
+UIManager.put("Component.arc", 12);
+UIManager.put("ProgressBar.arc", 12);
+UIManager.put("TextComponent.arc", 8);
+UIManager.put("ScrollBar.thumbArc", 999);
+```
+
+### 2. Nuevo flujo de arranque en `Main.java`
+
+```
+java -jar EpidemiaSimulador.jar               → abre VentanaMenuPrincipal (Swing)
+java -jar EpidemiaSimulador.jar --consola     → fuerza ConsolaMenu (texto)
+java -jar ... (entorno headless)              → cae automáticamente a ConsolaMenu
+```
+
+La detección headless es nativa (`GraphicsEnvironment.isHeadless()`), por lo que
+servidores y CI siguen funcionando sin cambios.
+
+### 3. Cuatro ventanas Swing nuevas en `presentation/`
+
+#### `VentanaMenuPrincipal.java`
+- Ventana raíz. Hereda de `JFrame`, `EXIT_ON_CLOSE`.
+- **Banner azul** con título, universidad y curso.
+- **JRadioButton** para elegir modo (individual / comparativo).
+- Botones **Continuar** (default, énfasis FlatLaf) y **Salir**.
+- Al pulsar Continuar abre `VentanaConfiguracion` modal; si el usuario
+  confirma, lanza la simulación en un `SwingWorker` para no bloquear la UI.
+
+#### `VentanaConfiguracion.java` (modal)
+- Reemplaza al método `solicitarConfiguracion()` de `ConsolaMenu`.
+- Formulario con `GridBagLayout`:
+  - `JComboBox` para el tamaño de red (pequeña / grande / personalizado).
+  - `JTextField` para N personas (solo si "personalizado").
+  - `JComboBox<EstrategiaVacunacion>` (solo en modo individual; en
+    comparativo se sustituye por un label explicativo).
+  - `JSpinner` para turnos máximos y días de recuperación.
+  - `JCheckBox` "Mostrar visualización GraphStream" (default activo).
+  - `JCheckBox` "Cargar red desde archivos CSV".
+- Botones Cancelar / **Ejecutar ▶** (default).
+- Construye un `ConfiguracionDto` y lo expone vía `getConfiguracion()`
+  (devuelve `null` si el usuario canceló).
+
+#### `VentanaResultados.java`
+- Ventana de salida. Reemplaza al panel ASCII de `PanelEstadisticas` y a la
+  oferta de exportación de `ConsolaMenu`.
+- **JTabbedPane** con dos pestañas:
+  - **"Tabla y ranking"** — `JSplitPane` vertical con un `JTable`
+    (métricas por estrategia, fila ganadora resaltada con `RendererGanador`) y
+    un `JTextArea` monoespaciado (ranking con score compuesto + justificación).
+  - **"Curva I(t)"** — `ChartPanel` de JFreeChart con la curva de infectados
+    por estrategia, repintado en paleta dark para integrarse con FlatLaf.
+- Botones inferiores: **Exportar TXT**, **Exportar PDF** (solo en comparativo),
+  **Cerrar**. Usan `JFileChooser` con extensión sugerida y filtro de archivo.
+
+#### `DialogoProgreso.java`
+- `JDialog` modal con barra `JProgressBar` indeterminada.
+- Se muestra mientras el `SwingWorker` ejecuta la simulación en background, de
+  modo que la ventana principal no aparezca congelada.
+
+### 4. Refacción visual integral de `GeneradorReportePDF`
+
+El PDF recibió una pasada de diseño completa. Sigue siendo light theme
+(porque un PDF debe leerse en papel/pantalla clara), pero ahora con paleta
+unificada y elementos visuales consistentes.
+
+**Paleta nueva** (constantes `private static final` en la clase):
+
+| Constante | Hex | Uso |
+|---|---|---|
+| `COLOR_ACENTO` | `#2c5fa6` | Azul corporativo: banner hero, cabecera tabla |
+| `COLOR_TITULO` | `#111827` | Texto de títulos H1/H2 |
+| `COLOR_BODY` | `#374151` | Texto de cuerpo y celdas |
+| `COLOR_SUAVE` | `#6b7280` | Texto secundario (labels, etiquetas de eje) |
+| `COLOR_GRID` | `#e5e7eb` | Líneas de cuadrícula en gráficos |
+| `COLOR_FONDO` | `#fafbfc` | Fondo del plot de cada gráfico |
+| `COLOR_AXIS` | `#d1d5db` | Líneas de ejes |
+| `COLOR_GANA_BG` | `#dcfce7` | Fondo verde claro de la fila ganadora |
+| `COLOR_GANA_TXT` | `#166534` | Texto verde oscuro de la fila ganadora |
+| `COLOR_ZEBRA` | `#f6f7f9` | Fondo alternativo (filas impares) |
+| `PALETA[6]` | varios | Color por estrategia, también en la UI Swing futura |
+
+**Mejoras visuales clave:**
+
+1. **Hero banner en la portada** — bloque azul con título blanco y subtítulo
+   universidad, en lugar del título plano anterior. Bajo el hero, una tabla
+   2-col (`Generado` / `Tamaño de red` / `Estrategias evaluadas`) con
+   tipografía en mayúsculas y color suave para las etiquetas.
+2. **Tabla resumen** — primera columna es un pequeño **cuadrito de color por
+   estrategia** (mismo color que la PALETA, reutilizable en barras y curvas).
+   Filas alternadas con `COLOR_ZEBRA`, fila del ganador con fondo verde claro
+   y prefijo `*`. Cabecera con fondo azul corporativo y texto blanco.
+3. **Veredicto cuantitativo** — el ganador aparece como un párrafo verde
+   destacado con el score `X.YYY / 1.000`, seguido de la justificación
+   narrativa generada por `AnalisisComparativo.justificarGanador`.
+4. **Curva I(t) comparativa** — XY chart con renderer que aplica `PALETA[i]`
+   por serie. Trazos de 2.2pt, sin marcadores. Cuadrícula sutil en
+   `COLOR_GRID`, ejes en `COLOR_AXIS`. Leyenda inferior sin borde.
+5. **Curvas SIRV por estrategia** — un mini-chart por estrategia (520×210)
+   con paleta fija por estado (S azul, I rojo, R verde, V naranja) en lugar
+   de los colores aleatorios anteriores.
+6. **Barras de métricas** — 5 charts (pico, duración, afectados, contención,
+   R0), cada uno con `BarRenderer` que pinta cada barra con el color de su
+   estrategia (mismo `PALETA[i]`). Encima de la serie de barras se imprime
+   una leyenda horizontal con un cuadrito de color por estrategia, para que
+   el lector identifique las barras sin tener que mirar el eje X.
+7. **Etiquetas sobre las barras** — `StandardCategoryItemLabelGenerator` con
+   `ItemLabelAnchor.OUTSIDE12` muestra el valor numérico encima de cada barra.
+8. **Desglose del score** — stacked bar chart 520×340 donde cada estrategia
+   aparece como una barra apilada y cada componente del score (`Pico`,
+   `Duración`, `Afectados`, `Contención`, `R0`) ocupa un tramo de color
+   distinto. La leyenda explica la fórmula y los pesos antes del gráfico.
+
+**Mantras de estilo aplicados a todos los charts:**
+- `chart.setBorderVisible(false)` + `setPadding(8,4,4,4)`.
+- `plot.setBackgroundPaint(COLOR_FONDO)`, `plot.setOutlineVisible(false)`.
+- Sin sombras de barras (`shadowVisible=false`, `barPainter=Standard`).
+- `setMaximumBarWidth(0.13)` en simples, `0.10` en apiladas — evita barras
+  gigantes con pocas categorías.
+- Categorías rotadas 45° (`CategoryLabelPositions.DOWN_45`) para que los
+  nombres largos como `BFS_PONDERADO` no se solapen.
+
+### 5. Cambios menores en el flujo
+
+- `IniciarSimulacionCommand` se invoca igual desde Swing que desde consola; no
+  hubo que cambiarlo. `VentanaMenuPrincipal` lo envuelve en un `SwingWorker`.
+- `ConsolaMenu` sigue intacto — el comparativo desde consola sigue ofreciendo
+  exportación a TXT/PDF. Es el path de fallback cuando Swing no está disponible.
+- `Main.java` reemplaza la antigua llamada directa `new ConsolaMenu().iniciar()`
+  por una rama que decide entre Swing y consola.
+
+### 6. Smoke test temporal — `_smoketest/PdfSmoke.java`
+
+Se añadió un main rápido fuera del flujo de producción para validar que
+`GeneradorReportePDF` no rompa en runtime tras los cambios visuales. Genera
+6 series sintéticas con curvas gaussianas y exporta `smoke_reporte.pdf`.
+
+> **TODO de limpieza:** eliminar el paquete `_smoketest/` antes de la entrega
+> final. El javadoc del archivo ya lo señala.
+
+### 7. Archivos creados / modificados en v7
+
+#### Modificados
+- `pom.xml` (nueva dependencia FlatLaf 3.5.4)
+- `src/main/java/Context/02_planificacion_tecnica.md` (estructura completa
+  actualizada con los archivos Swing y dependencias)
+- `src/main/java/Context/04_estructura_creada.md` (este archivo)
+- `src/main/java/presentation/Main.java` (arranque Swing por defecto)
+- `src/main/java/infrastructure/persistence/GeneradorReportePDF.java`
+  (refacción visual integral — ~340 líneas modificadas)
+
+#### Creados
+- `src/main/java/presentation/VentanaMenuPrincipal.java`
+- `src/main/java/presentation/VentanaConfiguracion.java`
+- `src/main/java/presentation/VentanaResultados.java`
+- `src/main/java/presentation/DialogoProgreso.java`
+- `src/main/java/_smoketest/PdfSmoke.java` (temporal, eliminable)
+
+### 8. Pruebas realizadas
+- `mvn compile`: sin errores con la nueva dependencia FlatLaf.
+- Lanzamiento gráfico: el menú principal abre con FlatDarkLaf, el flujo
+  individual y comparativo encadena correctamente las tres ventanas
+  (Menú → Configuración → Resultados).
+- Modo headless (`java.awt.headless=true`): cae a `ConsolaMenu` sin errores.
+- Flag `--consola`: fuerza el menú de texto incluso con GUI disponible.
+- Smoke test (`PdfSmoke`): genera un PDF de ~180 KB con las 6 series
+  sintéticas; todas las páginas y gráficos se renderizan.
+
+### 9. Revisión del PDF — estado y observaciones
+
+Tras la refacción, el PDF cumple los criterios de un reporte profesional:
+portada, tabla comparativa, veredicto, gráficos vectoriales y desglose. La
+revisión visual no encontró bugs de renderizado. Observaciones menores que
+**no bloquean** pero podrían pulirse:
+
+- La leyenda horizontal de barras usa `2N` columnas (cuadro + texto por
+  estrategia). Con N=6, cada par tiene ~87px de ancho en el bloque de 520px,
+  suficiente para los nombres actuales pero ajustado si en el futuro se
+  añaden estrategias con nombres más largos.
+- El asterisco `*` se usa en lugar de `★` Unicode para marcar al ganador,
+  porque la fuente Helvetica embebida en OpenPDF no garantiza todos los
+  glifos de iconos. Decisión intencional, no es un bug.
+- `_smoketest/PdfSmoke.java` debe eliminarse antes de la entrega final.
+
+---
+
+## v8 — Comparación justa, barra de turno y modo por lotes (2026-05-23)
+
+Tres mejoras pedidas por el equipo: que la comparación entre estrategias parta
+de condiciones idénticas, que el grafo muestre el turno en curso, y un tercer
+modo de análisis estadístico sobre muchos grafos.
+
+### 1. Comparación justa — paciente cero antes de vacunar + 15% de infectados
+
+**Problema previo.** En `IniciarSimulacionCommand` se vacunaba PRIMERO y luego se
+elegía el paciente cero sobre los susceptibles restantes. Como cada estrategia
+vacuna nodos distintos, el conjunto de susceptibles cambiaba y, aun con la misma
+semilla, los infectados iniciales terminaban siendo distintos por estrategia → la
+comparación no era justa.
+
+**Cambio 1a — orden.** Ahora `setearPacienteCero(...)` se ejecuta **antes** de
+`vacunacionCommand.ejecutar(...)` en los métodos `ejecutar` y `ejecutarConTab`. El
+paciente cero se elige sobre la población completa e idéntica (misma red + misma
+semilla) → las 6 estrategias arrancan con exactamente los mismos infectados. Como
+todos los algoritmos de vacunación filtran por `SUSCEPTIBLE`, los infectados quedan
+excluidos automáticamente (nunca se vacuna a un nodo ya infectado).
+
+**Cambio 1b — 15% de infectados iniciales.** `ConfiguracionDto.setTamanoRed(N)`
+recalcula `cantidadPacientesCero = round(0.15 × N)` (constante
+`FRACCION_INFECTADOS_INICIALES = 0.15`). Al centralizarlo en el setter, tanto la UI
+Swing como la consola y el comparativo aplican la regla sin duplicarla. Con N=80 →
+12 infectados; N=300 → 45. La cuota de vacunación (20%) se calcula sobre los
+susceptibles **restantes** tras fijar el paciente cero.
+
+- Archivos: `application/command/IniciarSimulacionCommand.java`,
+  `application/dto/ConfiguracionDto.java`.
+
+### 2. Barra de turno con conteo SIRV bajo el grafo
+
+`GraficoSimulacion` ahora envuelve la vista de GraphStream en un `JPanel`
+(`BorderLayout`) con un `JLabel` al sur que muestra
+`Turno N      S: ..  I: ..  R: ..  V: ..`, actualizado en `actualizarTurno(...)`
+vía `SwingUtilities.invokeLater` (la simulación corre en un hilo de fondo).
+
+- `inicializarEmbebido(red)` devuelve ese wrapper → el contador aparece en cada
+  pestaña del comparativo.
+- `inicializar(red)` (modo individual) construye su propio `JFrame` con el mismo
+  wrapper en lugar de `graph.display()`, para mostrar también la barra de turno.
+- Archivo: `presentation/GraficoSimulacion.java`.
+
+### 3. Tercer modo — experimento por lotes (N grafos distintos por estrategia)
+
+Nuevo modo que evalúa cada estrategia sobre **N grafos distintos e
+independientes** y promedia los resultados. No hay animación (es cómputo puro).
+
+**Semillas.** Cada par (estrategia `s`, corrida `i`) usa una semilla única
+`base + s·N + i`, por lo que un `x100` genera 600 grafos diferentes; ninguno se
+comparte entre estrategias ni entre corridas.
+
+**Orquestación.** `IniciarSimulacionCommand.ejecutarLote(config, nGrafos, progreso)`
+recorre las 6 estrategias × N grafos, creando un command por corrida (para ligar
+generación, vacunación aleatoria y paciente cero a la semilla del grafo) y
+reportando avance vía la interfaz funcional `ProgresoLote`.
+
+**Agregación.** `infrastructure/util/AgregadorLote`:
+- Promedia las métricas de las N corridas de cada estrategia (pico, turno-pico,
+  duración, recuperados, vacunados, R0) y construye una curva I(t) promedio.
+- Cuenta **victorias**: por cada índice de corrida rankea las estrategias con
+  `AnalisisComparativo` y suma una victoria a la mejor (lectura "acumulada",
+  estimación Monte Carlo de qué tan seguido cada estrategia es la mejor).
+- Empaqueta todo en `application/dto/ResultadoLoteDto`.
+
+**Veredicto (promedio + acumulado).** Sobre los 6 promedios se aplica el mismo
+score compuesto del comparativo; el ranking por score promedio es el titular y la
+columna de victorias corrobora el resultado.
+
+**UI.**
+- `presentation/ModoSimulacion` (enum): `INDIVIDUAL`, `COMPARATIVO`, `LOTE`.
+- `VentanaMenuPrincipal`: tercer `JRadioButton` + flujo `ejecutarLote` en un
+  `SwingWorker` que devuelve `ResultadoLoteDto`.
+- `VentanaConfiguracion`: ahora recibe `ModoSimulacion`; muestra un `JSpinner`
+  "Grafos por estrategia" (default 10) solo en modo lote; oculta visualización y
+  CSV en lote (la carga CSV daría siempre la misma red).
+- `VentanaResultadosLote`: tabla de métricas promedio + victorias, ranking por
+  score compuesto promedio, curva I(t) promedio y export TXT/PDF (reutiliza
+  `ExportadorResultados` y `GeneradorReportePDF` sobre los promedios).
+- `DialogoProgreso`: nuevo `actualizar(completadas, total, detalle)` que pasa la
+  barra a modo determinado ("grafo X de N").
+
+### 4. Archivos creados / modificados en v8
+
+#### Creados
+- `src/main/java/presentation/ModoSimulacion.java`
+- `src/main/java/presentation/VentanaResultadosLote.java`
+- `src/main/java/application/dto/ResultadoLoteDto.java`
+- `src/main/java/infrastructure/util/AgregadorLote.java`
+
+#### Modificados
+- `src/main/java/application/command/IniciarSimulacionCommand.java` (orden paciente
+  cero / vacunación + `ejecutarLote` + `ProgresoLote`)
+- `src/main/java/application/dto/ConfiguracionDto.java` (paciente cero = 15%)
+- `src/main/java/presentation/GraficoSimulacion.java` (barra de turno)
+- `src/main/java/presentation/VentanaConfiguracion.java` (modo + spinner de grafos)
+- `src/main/java/presentation/VentanaMenuPrincipal.java` (tercer modo + flujo lote)
+- `src/main/java/presentation/DialogoProgreso.java` (progreso determinado)
+- `README.md`, `src/main/java/Context/01_contexto_proyecto.md`,
+  `src/main/java/Context/05_grafos_y_algoritmos.md`
+
+### 5. Pruebas realizadas
+- `mvn clean compile`: BUILD SUCCESS sin errores.
+- Smoke test headless (eliminado tras validar): paciente cero idéntico con la
+  misma semilla (12 nodos para N=80); lote de 3 grafos × 6 estrategias = 18
+  simulaciones, suma de victorias = 3 (una por grafo), vacunados ≈ 13 (20% de los
+  68 susceptibles tras fijar el 15% infectado).
+
+---
+
+## v9 — Glosario de métricas en los PDFs (2026-05-23)
+
+Los informes PDF carecían de una guía que explicara qué significa cada variable y
+qué valores se consideran buenos. Sin esa referencia, un lector sin formación
+epidemiológica podía interpretar mal, por ejemplo, que un R0 alto es deseable.
+
+### 1. Nueva página de glosario en ambos generadores
+
+Se añadió el método privado `agregarGlosario(Document doc)` a
+`GeneradorReportePDF` y `agregarGlosario(Document doc, boolean esLote)` a
+`GeneradorReporteLotePDF`. Ambos son la última sección del PDF, tras el desglose
+del score.
+
+#### Contenido de la página
+
+Tabla de 3 columnas: **Variable | Qué mide | Resultado favorable**
+
+| Variable | Qué mide | Resultado favorable |
+|---|---|---|
+| S — Susceptibles | Personas que pueden contagiarse | Alto al final del brote |
+| I — Infectados | Personas enfermas y contagiosas | Curva baja y estrecha |
+| R — Recuperados (afectados) | Personas que pasaron por la enfermedad | Número bajo |
+| V — Vacunados | Personas inmunizadas antes de infectarse | Número alto |
+| Pico máximo de infectados | Presión sobre el sistema de salud | **Menor = mejor** |
+| t-Pico (turno del pico) | Momento en que explotó el brote | **Mayor = mejor** |
+| Duración del brote | Turnos hasta que I = 0 | **Menor = mejor** |
+| Total de afectados | Cuántos enfermaron en total | **Menor = mejor** |
+| Contención % | % de la población que NO se infectó | **Mayor = mejor** (∼100%) |
+| R0 estimado | Velocidad de propagación (< 1: se extingue) | **Menor = mejor** |
+| Score compuesto [0–1] | Indicador global ponderado de las 5 métricas | **Mayor = mejor** |
+| Victorias (solo lote) | En cuántas corridas fue la mejor estrategia | **Mayor = mejor** |
+
+El reporte individual muestra las 11 primeras variables (sin "Victorias").
+El reporte de lotes muestra las 12 (con "Victorias") gracias al parámetro
+`esLote = true`.
+
+Al pie de la tabla se incluye una nota sobre la dependencia de la topología de
+red y por qué el modo por lotes ofrece un veredicto más robusto.
+
+### 2. Integración en el flujo de exportación
+
+En `GeneradorReportePDF.exportar`:
+```java
+agregarDesgloseScore(doc, resultados);
+doc.newPage();
+agregarGlosario(doc);   // nueva última página
+```
+
+En `GeneradorReporteLotePDF.exportar`:
+```java
+agregarDesgloseScore(doc, promedios);
+doc.newPage();
+agregarGlosario(doc, true);   // nueva última página (incluye "Victorias")
+```
+
+Los PDFs pasan de 7 páginas (individual) y N+2 páginas (lote) a **8 y N+3**
+respectivamente.
+
+### 3. Archivos modificados en v9
+
+- `src/main/java/infrastructure/persistence/GeneradorReportePDF.java`
+  (nuevo método `agregarGlosario`, llamada al final de `exportar`)
+- `src/main/java/infrastructure/persistence/GeneradorReporteLotePDF.java`
+  (nuevo método `agregarGlosario`, llamada al final de `exportar`)
+- `README.md`
+- `src/main/java/Context/01_contexto_proyecto.md`
+- `src/main/java/Context/04_estructura_creada.md` (este archivo)
+- `src/main/java/Context/05_grafos_y_algoritmos.md`
+
+### 4. Pruebas realizadas
+- `mvn compile`: BUILD SUCCESS sin errores ni warnings de compilación.
+
+---
+
+## v10 — Infectados al 5%, modo de construcción visual y lote sin tope (2026-05-26)
+
+Tres cambios pedidos por el equipo: bajar la carga inicial del brote, agregar una
+forma de *ver* cómo se construye la red, y permitir lotes arbitrariamente grandes.
+
+### 1. Infectados iniciales 15% → 5%
+
+`ConfiguracionDto.FRACCION_INFECTADOS_INICIALES` pasa de `0.15` a `0.05`. Como el
+cálculo está centralizado en `setTamanoRed(N)` (`cantidadPacientesCero =
+round(0.05 × N)`), el cambio aplica de forma uniforme a la UI Swing, la consola,
+el comparativo y el lote. Con N=80 → 4 infectados; N=300 → 15. La cuota de
+vacunación (20%) sigue calculándose sobre los susceptibles restantes.
+
+- Archivo: `application/dto/ConfiguracionDto.java`.
+
+### 2. Nuevo modo — Construcción visual de la red (paso a paso)
+
+Cuarto modo del menú. Abre una ventana GraphStream que **construye la red en vivo**,
+revelando primero los nodos uno a uno y luego, fase por fase, cada arista
+individualmente con un color distinto:
+
+| Fase | Qué aparece | Color |
+|---|---|---|
+| 1 | Nodos (personas) | Azul |
+| 2 | Clusters familiares (cliques) | Rojo |
+| 3 | Vecindarios | Naranja |
+| 4 | Hubs comunitarios | Morado |
+| 5 | Conexiones long-range (small-world) | Gris |
+| 6 | Aristas puente de conectividad | Verde |
+
+Los nodos crecen conforme acumulan grado. La velocidad de revelado se autoajusta
+al número de elementos de cada fase (fases densas van más rápido), con una pausa
+configurable entre fases. Una leyenda superior identifica los colores y una barra
+inferior muestra la fase actual y el conteo de aristas.
+
+**Generador con fases.** `GeneradorPoblacion` expone la interfaz funcional
+`FaseListener` y el método `generarConFases(tamano, semilla, listener)`, que invoca
+al listener tras cada una de las 6 fases. El antiguo `generar(tamano, semilla)`
+ahora delega en `generarConFases(..., null)` — sin cambios para el resto del
+código.
+
+**UI.**
+- `presentation/ModoSimulacion` (enum): nueva constante `CONSTRUCCION_VISUAL`.
+- `VentanaMenuPrincipal`: 4º `JRadioButton` + `ejecutarConstruccionVisual` en un
+  `SwingWorker`.
+- `VentanaConfiguracion`: en modo construcción muestra solo "Tamaño de red" y
+  "Pausa entre fases (ms)" (default 600); arranca en 25 personas (red pequeña
+  para apreciar el paso a paso); expone `getPausaFasesMs()`.
+- `ConsolaMenu`: nueva opción 3 "Construcción visual red" (Salir pasa a la 4).
+
+Para el detalle conceptual de las fases ver la sección 8 de
+`05_grafos_y_algoritmos.md`.
+
+### 3. Modo lote sin tope de grafos
+
+El `JSpinner` "Grafos por estrategia" tenía máximo 1000; ahora usa
+`Integer.MAX_VALUE` como tope. El usuario puede elegir cualquier N (el costo de
+cómputo crece como 6 × N simulaciones).
+
+- Archivo: `presentation/VentanaConfiguracion.java`.
+
+### 4. Archivos creados / modificados en v10
+
+#### Creados
+- `src/main/java/presentation/VisualizadorConstruccionRed.java`
+
+#### Modificados
+- `src/main/java/application/dto/ConfiguracionDto.java` (infectados 5%)
+- `src/main/java/infrastructure/util/GeneradorPoblacion.java` (`FaseListener` +
+  `generarConFases`)
+- `src/main/java/presentation/ModoSimulacion.java` (`CONSTRUCCION_VISUAL`)
+- `src/main/java/presentation/VentanaConfiguracion.java` (modo construcción +
+  pausa + spinner de lote sin tope)
+- `src/main/java/presentation/VentanaMenuPrincipal.java` (4º modo)
+- `src/main/java/presentation/ConsolaMenu.java` (opción 3 construcción visual)
+- `src/main/java/Context/01_contexto_proyecto.md`,
+  `src/main/java/Context/04_estructura_creada.md` (este archivo),
+  `src/main/java/Context/05_grafos_y_algoritmos.md`
+
+### 5. Pruebas realizadas
+- `mvn compile`: BUILD SUCCESS sin errores.
+
+---
+
+## v11 — Pesos dinámicos adaptativos (2026-05-27)
+
+### Motivación
+
+Hasta v10 los pesos de las aristas solo variaban cuando un evento NPI se disparaba (máximo 3 veces por simulación). La propagación no reflejaba que las personas reaccionan de forma continua a lo que ven a su alrededor (reacción local) ni que se relajan una vez el peligro parece haber pasado (fatiga social).
+
+### Nuevo mecanismo — fórmula de peso efectivo
+
+```
+probEfectiva(u→v, t) = clamp( probBase(u→v) × factorEventos(t) × vigilancia(v,t) × fatiga(t),
+                               0.05, 0.95 )
+```
+
+Los tres factores se componen multiplicativamente y se recomputan **cada turno**, en lugar de modificar los pesos de forma permanente.
+
+### Cambio de diseño en GestorEventos
+
+Antes: `GestorEventos.evaluar()` iteraba sobre todas las aristas y llamaba `c.aplicarFactor(factor)` — modificación permanente in-place.
+
+Ahora: `GestorEventos` **rastrea el producto acumulado** de los factores disparados en el campo `factorAcumuladoEventos` y lo expone con `getFactorAcumuladoEventos()`. No toca las aristas. Las aristas se actualizan por `AjustadorPesosAdaptativo`.
+
+Esto permite que `AjustadorPesosAdaptativo` recalcule el peso desde la base en cada turno, eliminando el problema de acumulación irreversible entre turnos.
+
+### Cambio en Contacto
+
+Se añadió el campo `private final double probContagioBase` (inmutable, calculado al crear la arista). `probContagio` sigue siendo mutable y es el valor efectivo del turno actual. `AjustadorPesosAdaptativo` llama a `c.setProbContagio(...)` cada turno.
+
+### Nueva clase — AjustadorPesosAdaptativo
+
+`domain/algoritmo/AjustadorPesosAdaptativo.java` — invocada desde `SimulacionService` una vez por turno, después de `gestor.evaluar()` y después de añadir el conteo al historial.
+
+**Reacción local (vigilanciaDestino):**
+
+```java
+// Para cada nodo v: contar fracción de sus vecinos entrantes infectados
+vigilancia(v) = 1 − 0.60 × (infectadosEntrantes(v) / totalEntrantes(v))
+```
+
+- La vigilancia afecta las aristas ENTRANTES del nodo v (cualquier u→v se ve reducida)
+- Se recalcula desde cero cada turno: no es acumulativa
+- Constante VIGILANCIA_MAX = 0.60 → reducción máxima del 60%
+
+**Fatiga social (factorFatiga):**
+
+```java
+// Si I no crece durante ≥ 5 turnos consecutivos:
+fatiga = 1.0 + min(0.30, (turnosDecreciendo − 5) / 10 × 0.30)
+// Si I vuelve a crecer: turnosDecreciendo = 0, fatiga = 1.0
+```
+
+- Constantes: UMBRAL_FATIGA_TURNOS = 5, FATIGA_MAX = 0.30, TURNOS_FATIGA_COMPLETA = 10
+- Imprime log cuando se alcanza el umbral y cuando se reinicia
+
+### Integración en SimulacionService
+
+```java
+AjustadorPesosAdaptativo ajustador = new AjustadorPesosAdaptativo();
+
+// Antes del loop: ajuste inicial basado en el paciente cero
+ajustador.ajustar(red, gestor.getFactorAcumuladoEventos(), historial);
+
+// Dentro del loop, después de evaluar() y historial.add():
+ajustador.ajustar(red, gestor.getFactorAcumuladoEventos(), historial);
+```
+
+### Alertas en pantalla
+
+`ajustar()` retorna un enum `CambioFatiga { NINGUNO, INICIADA, REINICIADA }` para que la UI sepa cuándo cambió el estado de la fatiga sin acoplar dominio y presentación. `SimulacionService` usa eso y la lista de eventos disparados por `GestorEventos.evaluar()` para llamar a los métodos de alerta de `GraficoSimulacion`:
+
+- `alertaEventoNPI(nombre)` → banner naranja/rojo según el evento (Alerta Leve / Cuarentena / Lockdown)
+- `alertaFatigaIniciada()` → banner verde ("la población se relaja")
+- `alertaFatigaReiniciada()` → banner dorado ("precaución restaurada por rebote")
+
+`GraficoSimulacion` añade un `JLabel` al NORTH del panel (sobre el grafo) que se hace visible con el color correspondiente y se auto-oculta tras 4 s mediante un `javax.swing.Timer`.
+
+### Historial de pesos por nodo y turno
+
+Para que el usuario pueda *ver* cómo los pesos se actualizan turno a turno bajo cada estrategia, se captura un historial del peso de cada nodo:
+
+- `ConfiguracionDto.capturarHistorialPesos` (bool, default `false`): solo se activa en los modos **individual** y **comparativo** desde `VentanaMenuPrincipal.ejecutarSimulacion`. El modo **lote** lo deja en `false` para no acumular memoria con N grafos. `IniciarSimulacionCommand.clonar()` propaga el flag a cada estrategia del comparativo.
+- `ResultadoSimulacionDto.historialPesosPorTurno` (`List<Map<String,Double>>`, default vacío + getter/setter; el constructor no cambia, así que `AgregadorLote` y `PdfSmoke` no se ven afectados).
+- `SimulacionService.snapshotPesos(red)`: por cada nodo calcula el promedio de `probContagio` de sus aristas salientes (probabilidad efectiva de contagiar a un vecino) y lo guarda. Se toma un snapshot tras el ajuste inicial (turno 0) y tras el ajuste de cada turno, de modo que `historialPesos.size() == historial.size()`.
+- `VentanaResultados`: nueva pestaña **"Historial de pesos"** (solo si hay datos). En individual muestra una tabla nodo×turno; en comparativo un `JTabbedPane` interno con una tabla por estrategia. Filas = nodos (ordenados numéricamente por id), columnas = turnos (`T0`, `T1`, ...), celda = peso medio con 3 decimales.
+
+### Archivos modificados / creados en v11
+
+#### Creados
+- `src/main/java/domain/algoritmo/AjustadorPesosAdaptativo.java`
+
+#### Modificados
+- `src/main/java/domain/model/Contacto.java` (`probContagioBase` + getter)
+- `src/main/java/domain/algoritmo/GestorEventos.java` (rastrea factor, no modifica aristas)
+- `src/main/java/application/service/SimulacionService.java` (integra ajustador, alertas y captura de pesos)
+- `src/main/java/application/dto/ConfiguracionDto.java` (flag `capturarHistorialPesos`)
+- `src/main/java/application/dto/ResultadoSimulacionDto.java` (`historialPesosPorTurno`)
+- `src/main/java/application/command/IniciarSimulacionCommand.java` (propaga el flag en `clonar`)
+- `src/main/java/presentation/GraficoSimulacion.java` (banner de alertas)
+- `src/main/java/presentation/VentanaMenuPrincipal.java` (activa el flag en individual/comparativo)
+- `src/main/java/presentation/VentanaResultados.java` (pestaña "Historial de pesos")
+- `src/main/java/Context/03_modelo_matematico.md`
+- `src/main/java/Context/04_estructura_creada.md` (este archivo)
+- `src/main/java/Context/05_grafos_y_algoritmos.md`
+- `README.md`
+
+### Pruebas realizadas
+- `mvn compile`: BUILD SUCCESS sin errores ni warnings de compilación.

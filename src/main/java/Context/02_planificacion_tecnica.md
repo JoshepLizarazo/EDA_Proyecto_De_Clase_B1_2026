@@ -2,15 +2,19 @@
 
 ## Tecnologías
 
-| Tecnología | Uso |
-|---|---|
-| Java 17+ | Lenguaje principal |
-| GraphStream 2.x | Visualización del grafo en tiempo real |
-| Maven | Gestión de dependencias |
-| CSV plano | Carga opcional de grafos predefinidos (rubric) |
+| Tecnología | Versión | Uso |
+|---|---|---|
+| Java | 17+ | Lenguaje principal |
+| Maven | — | Gestión de dependencias y build |
+| GraphStream | 2.0 | Visualización del grafo en tiempo real |
+| JFreeChart | 1.5.4 | Gráficos para el reporte (PDF y ventana de resultados) |
+| OpenPDF | 1.3.34 | Generación del reporte PDF (fork libre de iText 4) |
+| FlatLaf | 3.5.4 | Look-and-Feel oscuro moderno para la UI Swing |
+| CSV plano | — | Carga opcional de grafos predefinidos (rubric) |
 
-### Dependencia Maven — GraphStream
+### Dependencias Maven completas
 ```xml
+<!-- GraphStream — visualización en tiempo real -->
 <dependency>
     <groupId>org.graphstream</groupId>
     <artifactId>gs-core</artifactId>
@@ -20,6 +24,27 @@
     <groupId>org.graphstream</groupId>
     <artifactId>gs-ui-swing</artifactId>
     <version>2.0</version>
+</dependency>
+
+<!-- JFreeChart — gráficos del PDF y de la ventana de resultados -->
+<dependency>
+    <groupId>org.jfree</groupId>
+    <artifactId>jfreechart</artifactId>
+    <version>1.5.4</version>
+</dependency>
+
+<!-- OpenPDF — exportación PDF -->
+<dependency>
+    <groupId>com.github.librepdf</groupId>
+    <artifactId>openpdf</artifactId>
+    <version>1.3.34</version>
+</dependency>
+
+<!-- FlatLaf — Look-and-Feel oscuro de la UI Swing -->
+<dependency>
+    <groupId>com.formdev</groupId>
+    <artifactId>flatlaf</artifactId>
+    <version>3.5.4</version>
 </dependency>
 ```
 
@@ -42,7 +67,8 @@ presentation   →  application   →   domain   →   infrastructure
 EpidemiaSimulador/
 ├── pom.xml
 ├── README.md
-├── INSTRUCCIONES_EJECUCION.md
+├── reporte_simulacion.pdf       (último reporte generado, opcional)
+├── resultados_simulacion.txt    (último resumen TXT, opcional)
 │
 ├── data/
 │   ├── personas_red1.csv
@@ -50,12 +76,24 @@ EpidemiaSimulador/
 │   ├── personas_red2.csv
 │   └── contactos_red2.csv
 │
-└── src/main/java/co/uis/epidemia/
-    ├── presentation/
-    │   ├── Main.java
-    │   ├── ConsolaMenu.java
-    │   ├── GraficoSimulacion.java
-    │   └── PanelEstadisticas.java
+└── src/main/java/
+    ├── Context/                       (documentación viva del proyecto)
+    │   ├── 01_contexto_proyecto.md
+    │   ├── 02_planificacion_tecnica.md
+    │   ├── 03_modelo_matematico.md
+    │   ├── 04_estructura_creada.md
+    │   └── 05_grafos_y_algoritmos.md
+    │
+    ├── presentation/                  (UI Swing + consola fallback)
+    │   ├── Main.java                  (lanza Swing; flag --consola fuerza ConsolaMenu)
+    │   ├── VentanaMenuPrincipal.java  (menú principal Swing — individual/comparativo)
+    │   ├── VentanaConfiguracion.java  (diálogo de configuración modal)
+    │   ├── VentanaResultados.java     (tabla + ranking + curva I(t) + export TXT/PDF)
+    │   ├── DialogoProgreso.java       (barra indeterminada mientras corre la simulación)
+    │   ├── VentanaComparativaTabs.java (JTabbedPane con 6 grafos GraphStream embebidos)
+    │   ├── GraficoSimulacion.java     (GraphStream — modo standalone y embebido)
+    │   ├── PanelEstadisticas.java     (ASCII art para la consola)
+    │   └── ConsolaMenu.java           (fallback por consola; sigue funcionando)
     │
     ├── application/
     │   ├── service/
@@ -65,7 +103,7 @@ EpidemiaSimulador/
     │   │   ├── ResultadoSimulacionDto.java
     │   │   └── ConfiguracionDto.java
     │   └── command/
-    │       ├── IniciarSimulacionCommand.java
+    │       ├── IniciarSimulacionCommand.java   (orquesta individual + comparativo de 6)
     │       └── AplicarVacunacionCommand.java
     │
     ├── domain/
@@ -77,7 +115,7 @@ EpidemiaSimulador/
     │   ├── value/
     │   │   ├── EstadoSIRV.java
     │   │   ├── TipoEvento.java
-    │   │   └── EstrategiaVacunacion.java
+    │   │   └── EstrategiaVacunacion.java   (6 valores con BFS_PONDERADO incluido)
     │   └── algoritmo/
     │       ├── ModeloSIRV.java
     │       ├── GestorEventos.java
@@ -86,16 +124,22 @@ EpidemiaSimulador/
     │       ├── VacunacionHubs.java
     │       ├── VacunacionBetweenness.java
     │       ├── VacunacionComunidades.java
+    │       ├── VacunacionBFSPonderado.java  (sexta estrategia — usa BFSPonderado)
     │       └── VacunacionHibrida.java
     │
-    └── infrastructure/
-        ├── persistence/
-        │   ├── CargadorRedCSV.java
-        │   ├── ExportadorResultados.java
-        │   └── RedMemoryRepository.java
-        └── util/
-            ├── GeneradorPoblacion.java
-            └── CalculadorEstadisticas.java
+    ├── infrastructure/
+    │   ├── persistence/
+    │   │   ├── CargadorRedCSV.java
+    │   │   ├── ExportadorResultados.java     (TXT)
+    │   │   ├── GeneradorReportePDF.java      (PDF profesional con JFreeChart + OpenPDF)
+    │   │   └── RedMemoryRepository.java
+    │   └── util/
+    │       ├── GeneradorPoblacion.java
+    │       ├── CalculadorEstadisticas.java
+    │       └── AnalisisComparativo.java      (score compuesto + justificación)
+    │
+    └── _smoketest/
+        └── PdfSmoke.java                 (test temporal del PDF — eliminable)
 ```
 
 ---

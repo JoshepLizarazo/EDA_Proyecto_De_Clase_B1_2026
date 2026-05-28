@@ -2,6 +2,7 @@ package presentation;
 
 import application.command.IniciarSimulacionCommand;
 import application.dto.ConfiguracionDto;
+import application.dto.ResultadoLoteDto;
 import application.dto.ResultadoSimulacionDto;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -38,6 +39,8 @@ public class VentanaMenuPrincipal extends JFrame {
 
     private final JRadioButton rbIndividual    = new JRadioButton("Simulación individual", true);
     private final JRadioButton rbComparativo   = new JRadioButton("Comparativo 6 estrategias");
+    private final JRadioButton rbLote          = new JRadioButton("Experimento por lotes (N grafos por estrategia)");
+    private final JRadioButton rbConstruccion  = new JRadioButton("Construcción visual de la red (paso a paso)");
 
     public VentanaMenuPrincipal() {
         super("Simulador SIRV — Menú Principal");
@@ -88,22 +91,36 @@ public class VentanaMenuPrincipal extends JFrame {
         ButtonGroup grupo = new ButtonGroup();
         grupo.add(rbIndividual);
         grupo.add(rbComparativo);
+        grupo.add(rbLote);
+        grupo.add(rbConstruccion);
 
         rbIndividual.setFont(rbIndividual.getFont().deriveFont(Font.PLAIN, 14f));
         rbComparativo.setFont(rbComparativo.getFont().deriveFont(Font.PLAIN, 14f));
+        rbLote.setFont(rbLote.getFont().deriveFont(Font.PLAIN, 14f));
+        rbConstruccion.setFont(rbConstruccion.getFont().deriveFont(Font.PLAIN, 14f));
         rbIndividual.setAlignmentX(Component.LEFT_ALIGNMENT);
         rbComparativo.setAlignmentX(Component.LEFT_ALIGNMENT);
+        rbLote.setAlignmentX(Component.LEFT_ALIGNMENT);
+        rbConstruccion.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JLabel descIndiv = new JLabel(
                 "   Ejecuta una sola estrategia de vacunación que tú elijas.");
         JLabel descComp  = new JLabel(
-                "   Ejecuta las 6 estrategias y muestra un análisis comparativo.");
+                "   Ejecuta las 6 estrategias sobre la misma red (mismos infectados).");
+        JLabel descLote  = new JLabel(
+                "   Corre N grafos distintos por estrategia y promedia los resultados.");
+        JLabel descConst = new JLabel(
+                "   Visualiza las 6 fases de construcción: nodos → familia → vecindario → hubs → long-range → puente.");
         Color secundario = javax.swing.UIManager.getColor("Label.disabledForeground");
         if (secundario == null) secundario = new Color(160, 160, 170);
         descIndiv.setForeground(secundario);
         descComp.setForeground(secundario);
+        descLote.setForeground(secundario);
+        descConst.setForeground(secundario);
         descIndiv.setAlignmentX(Component.LEFT_ALIGNMENT);
         descComp.setAlignmentX(Component.LEFT_ALIGNMENT);
+        descLote.setAlignmentX(Component.LEFT_ALIGNMENT);
+        descConst.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         // Contenido apilado vertical, compacto en su altura preferida
         JPanel contenido = new JPanel();
@@ -116,6 +133,14 @@ public class VentanaMenuPrincipal extends JFrame {
         contenido.add(rbComparativo);
         contenido.add(Box.createVerticalStrut(2));
         contenido.add(descComp);
+        contenido.add(Box.createVerticalStrut(16));
+        contenido.add(rbLote);
+        contenido.add(Box.createVerticalStrut(2));
+        contenido.add(descLote);
+        contenido.add(Box.createVerticalStrut(16));
+        contenido.add(rbConstruccion);
+        contenido.add(Box.createVerticalStrut(2));
+        contenido.add(descConst);
 
         // Wrapper: deja el contenido pegado arriba; el sobrante queda vacío.
         JPanel wrapper = new JPanel(new BorderLayout());
@@ -148,16 +173,34 @@ public class VentanaMenuPrincipal extends JFrame {
     // ── Lógica de flujo ───────────────────────────────────────────────────────
 
     private void onContinuar() {
-        boolean individual = rbIndividual.isSelected();
-        VentanaConfiguracion dlg = new VentanaConfiguracion(this, individual);
+        ModoSimulacion modo = modoSeleccionado();
+        VentanaConfiguracion dlg = new VentanaConfiguracion(this, modo);
         dlg.setVisible(true);
 
         ConfiguracionDto config = dlg.getConfiguracion();
         if (config == null) return; // Usuario canceló
-        ejecutarSimulacion(config, individual);
+
+        if (modo == ModoSimulacion.LOTE) {
+            ejecutarLote(config, dlg.getNGrafos());
+        } else if (modo == ModoSimulacion.CONSTRUCCION_VISUAL) {
+            ejecutarConstruccionVisual(config.getTamanoRed(), dlg.getPausaFasesMs());
+        } else {
+            ejecutarSimulacion(config, modo);
+        }
     }
 
-    private void ejecutarSimulacion(ConfiguracionDto config, boolean individual) {
+    private ModoSimulacion modoSeleccionado() {
+        if (rbComparativo.isSelected())  return ModoSimulacion.COMPARATIVO;
+        if (rbLote.isSelected())         return ModoSimulacion.LOTE;
+        if (rbConstruccion.isSelected()) return ModoSimulacion.CONSTRUCCION_VISUAL;
+        return ModoSimulacion.INDIVIDUAL;
+    }
+
+    private void ejecutarSimulacion(ConfiguracionDto config, ModoSimulacion modo) {
+        boolean individual = modo == ModoSimulacion.INDIVIDUAL;
+        // El historial de pesos por turno solo se captura en individual/comparativo
+        // (no en lote, donde acumularía memoria con N grafos).
+        config.setCapturarHistorialPesos(true);
         DialogoProgreso progreso = new DialogoProgreso(this,
                 individual ? "Ejecutando simulación..." : "Ejecutando 6 estrategias...");
 
@@ -193,6 +236,46 @@ public class VentanaMenuPrincipal extends JFrame {
         };
         worker.execute();
         progreso.setVisible(true);
+    }
+
+    private void ejecutarLote(ConfiguracionDto config, int nGrafos) {
+        DialogoProgreso progreso = new DialogoProgreso(this, "Preparando experimento por lotes...");
+
+        SwingWorker<ResultadoLoteDto, Void> worker = new SwingWorker<ResultadoLoteDto, Void>() {
+
+            @Override
+            protected ResultadoLoteDto doInBackground() {
+                IniciarSimulacionCommand cmd =
+                        new IniciarSimulacionCommand(config.getSemillaAleatoria());
+                return cmd.ejecutarLote(config, nGrafos,
+                        (hechas, total, detalle) -> progreso.actualizar(hechas, total,
+                                String.format("Simulando %d / %d    %s", hechas, total, detalle)));
+            }
+
+            @Override
+            protected void done() {
+                progreso.dispose();
+                try {
+                    new VentanaResultadosLote(get()).setVisible(true);
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(VentanaMenuPrincipal.this,
+                            "Error al ejecutar el experimento por lotes:\n" + ex.getMessage(),
+                            "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        worker.execute();
+        progreso.setVisible(true);
+    }
+
+    private void ejecutarConstruccionVisual(int tamano, int pausaMs) {
+        long semilla = new java.util.Random().nextLong();
+        new SwingWorker<Void, Void>() {
+            @Override protected Void doInBackground() {
+                new VisualizadorConstruccionRed().visualizar(tamano, semilla, pausaMs);
+                return null;
+            }
+        }.execute();
     }
 
     // ── Punto de entrada estático ─────────────────────────────────────────────

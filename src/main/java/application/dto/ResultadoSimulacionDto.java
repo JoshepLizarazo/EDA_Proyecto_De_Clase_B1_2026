@@ -1,6 +1,7 @@
 package application.dto;
 
 import domain.value.EstrategiaVacunacion;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -20,6 +21,11 @@ public class ResultadoSimulacionDto {
     private final int totalPoblacion;
     private final double r0Estimado;
     private final double porcentajeContencion;
+
+    // Historial del peso promedio (probContagio saliente) de cada nodo, turno a turno.
+    // index = turno; clave = id del nodo; valor = promedio de probContagio de sus aristas salientes.
+    // Vacío salvo en los modos individual/comparativo (ver ConfiguracionDto.capturarHistorialPesos).
+    private List<Map<String, Double>> historialPesosPorTurno = new ArrayList<>();
 
     public ResultadoSimulacionDto(EstrategiaVacunacion estrategia,
                                   List<Map<String, Integer>> historialPorTurno,
@@ -53,6 +59,8 @@ public class ResultadoSimulacionDto {
     public int getTotalPoblacion()                           { return totalPoblacion; }
     public double getR0Estimado()                            { return r0Estimado; }
     public double getPorcentajeContencion()                  { return porcentajeContencion; }
+    public List<Map<String, Double>> getHistorialPesosPorTurno()       { return historialPesosPorTurno; }
+    public void setHistorialPesosPorTurno(List<Map<String, Double>> h) { this.historialPesosPorTurno = h; }
 
     @Override
     public String toString() {

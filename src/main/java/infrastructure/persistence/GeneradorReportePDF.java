@@ -119,6 +119,9 @@ public class GeneradorReportePDF {
             doc.newPage();
 
             agregarDesgloseScore(doc, resultados);
+            doc.newPage();
+
+            agregarGlosario(doc);
 
             doc.close();
         } catch (Exception e) {
@@ -588,6 +591,110 @@ public class GeneradorReportePDF {
         legend.setBackgroundPaint(Color.WHITE);
         legend.setFrame(BlockBorder.NONE);
         legend.setMargin(new RectangleInsets(4, 4, 4, 4));
+    }
+
+    // ── Glosario de métricas ──────────────────────────────────────────────────
+
+    private void agregarGlosario(Document doc) throws Exception {
+        Font fH2    = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14, COLOR_TITULO);
+        Font fIntro = FontFactory.getFont(FontFactory.HELVETICA, 10, COLOR_BODY);
+        Font fEnc   = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9.5f, Color.WHITE);
+        Font fVar   = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9.5f, COLOR_TITULO);
+        Font fDesc  = FontFactory.getFont(FontFactory.HELVETICA, 9.5f, COLOR_BODY);
+        Font fBien  = FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 9.5f, new Color(0x166534));
+
+        Paragraph titulo = new Paragraph("Glosario de métricas — Guía de interpretación", fH2);
+        titulo.setSpacingAfter(6);
+        doc.add(titulo);
+
+        Paragraph intro = new Paragraph(
+            "Esta sección explica cada variable que aparece en el informe, qué representa "
+          + "dentro del modelo epidémico SIRV y qué valores se consideran favorables desde "
+          + "el punto de vista de salud pública.", fIntro);
+        intro.setSpacingAfter(12);
+        doc.add(intro);
+
+        PdfPTable tabla = new PdfPTable(new float[]{1.4f, 2.8f, 2.0f});
+        tabla.setWidthPercentage(100);
+        tabla.setSpacingAfter(14);
+
+        for (String cab : new String[]{"Variable", "Qué mide", "Resultado favorable"}) {
+            PdfPCell c = new PdfPCell(new Phrase(cab, fEnc));
+            c.setBackgroundColor(COLOR_TBL_HEAD);
+            c.setBorderColor(COLOR_TBL_HEAD);
+            c.setPadding(7);
+            c.setHorizontalAlignment(Element.ALIGN_CENTER);
+            tabla.addCell(c);
+        }
+
+        Color[] bg = {Color.WHITE, COLOR_ZEBRA};
+        int fila = 0;
+        String[][] filas = {
+            {"S — Susceptibles",
+             "Personas que aún no se han infectado y pueden contagiarse. Al inicio son la mayoría de la población.",
+             "Alto al final del brote: indica que la estrategia protegió a más personas."},
+            {"I — Infectados",
+             "Personas actualmente enfermas y capaces de contagiar a otros. La curva I(t) muestra cómo evoluciona el brote.",
+             "Curva baja y estrecha: pico pequeño y brote corto."},
+            {"R — Recuperados\n(Afectados totales)",
+             "Personas que se infectaron y se recuperaron. El valor final de R al terminar el brote equivale al total de afectados.",
+             "Número bajo: cuantos menos hayan pasado por R, mejor."},
+            {"V — Vacunados",
+             "Personas inmunizadas mediante vacunación antes de infectarse. No contribuyen a la cadena de contagio.",
+             "Número alto: mayor cobertura de vacunación lograda."},
+            {"Pico máximo\nde infectados",
+             "Mayor número de personas enfermas simultáneamente en cualquier turno. Mide la presión sobre el sistema de salud.",
+             "Menor = mejor. Un pico bajo evita el colapso hospitalario."},
+            {"t-Pico\n(turno del pico)",
+             "Turno en que se alcanzó el máximo de infectados. Un pico tardío indica que el brote tardó en estallar.",
+             "Mayor = mejor. Da más tiempo para vacunar y preparar el sistema."},
+            {"Duración del brote",
+             "Número de turnos desde el inicio hasta que no quedan infectados activos en la red.",
+             "Menor = mejor. Un brote corto minimiza el tiempo de exposición."},
+            {"Total de afectados",
+             "Cuántas personas se infectaron durante toda la simulación. Coincide con R al final del brote.",
+             "Menor = mejor. Refleja cuántas personas realmente enfermaron."},
+            {"Contención %",
+             "Porcentaje de la población que NO se infectó. Fórmula: 100 % − (afectados / población) × 100.",
+             "Mayor = mejor. Cercano a 100 % significa que casi nadie se enfermó."},
+            {"R0 estimado",
+             "Número promedio de personas que contagia una persona infectada al inicio del brote. R0 < 1: el brote se extingue; R0 > 1: crecimiento exponencial.",
+             "Menor = mejor. R0 idealmente por debajo de 1."},
+            {"Score compuesto\n[0 – 1]",
+             "Indicador global que combina las cinco métricas con pesos: 30 % pico + 25 % afectados + 20 % contención + 15 % duración + 10 % R0. Cada métrica se normaliza; las de \"menor es mejor\" se invierten.",
+             "Mayor = mejor. 1,000 representaría la estrategia ideal en todos los frentes."},
+        };
+
+        for (String[] f : filas) {
+            Color bgFila = bg[fila % 2];
+            PdfPCell cVar = new PdfPCell(new Phrase(f[0], fVar));
+            cVar.setBackgroundColor(bgFila);
+            cVar.setBorderColor(new Color(0xeceff3));
+            cVar.setPadding(6);
+            tabla.addCell(cVar);
+
+            PdfPCell cDesc = new PdfPCell(new Phrase(f[1], fDesc));
+            cDesc.setBackgroundColor(bgFila);
+            cDesc.setBorderColor(new Color(0xeceff3));
+            cDesc.setPadding(6);
+            tabla.addCell(cDesc);
+
+            PdfPCell cBien = new PdfPCell(new Phrase(f[2], fBien));
+            cBien.setBackgroundColor(bgFila);
+            cBien.setBorderColor(new Color(0xeceff3));
+            cBien.setPadding(6);
+            tabla.addCell(cBien);
+            fila++;
+        }
+        doc.add(tabla);
+
+        Paragraph nota = new Paragraph(
+            "Nota: el modelo SIRV es una simulación discreta sobre grafos — los resultados dependen "
+          + "de la topología de la red (quién está conectado con quién). Por eso una misma estrategia "
+          + "puede comportarse distinto en redes distintas, algo que el modo de experimento por lotes "
+          + "captura promediando múltiples grafos independientes.",
+            FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 9, COLOR_SUAVE));
+        doc.add(nota);
     }
 
     // ── Conversión a imagen embebible en PDF ──────────────────────────────────

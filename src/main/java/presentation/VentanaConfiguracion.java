@@ -40,22 +40,24 @@ public class VentanaConfiguracion extends JDialog {
                                               "Red grande (~300 nodos)",
                                               "Personalizado" };
 
-    private final boolean modoIndividual;
+    private final ModoSimulacion modo;
 
     private final JComboBox<String> cbTamano       = new JComboBox<>(TAMANOS);
     private final JTextField        txtPersonas    = new JTextField("80");
     private final JComboBox<EstrategiaVacunacion> cbEstrategia =
             new JComboBox<>(EstrategiaVacunacion.values());
+    private final JSpinner          spGrafos       = new JSpinner(new SpinnerNumberModel(10, 2, Integer.MAX_VALUE, 1));
     private final JSpinner          spTurnos       = new JSpinner(new SpinnerNumberModel(60, 1, 9999, 1));
     private final JSpinner          spRecuperacion = new JSpinner(new SpinnerNumberModel(7,  1, 365,  1));
+    private final JSpinner          spPausaFases   = new JSpinner(new SpinnerNumberModel(600, 200, 10000, 100));
     private final JCheckBox         cbVisualizacion = new JCheckBox("Mostrar visualización GraphStream");
     private final JCheckBox         cbCSV           = new JCheckBox("Cargar red desde archivos CSV");
 
     private ConfiguracionDto resultado = null;
 
-    public VentanaConfiguracion(java.awt.Frame padre, boolean modoIndividual) {
+    public VentanaConfiguracion(java.awt.Frame padre, ModoSimulacion modo) {
         super(padre, "Configuración de la simulación", true);
-        this.modoIndividual = modoIndividual;
+        this.modo = modo;
         construirUI();
         setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         pack();
@@ -76,9 +78,12 @@ public class VentanaConfiguracion extends JDialog {
     }
 
     private JLabel crearTitulo() {
-        String texto = modoIndividual
-                ? "Configura tu simulación individual"
-                : "Configura el comparativo de 6 estrategias";
+        String texto = switch (modo) {
+            case INDIVIDUAL          -> "Configura tu simulación individual";
+            case COMPARATIVO         -> "Configura el comparativo de 6 estrategias";
+            case LOTE                -> "Configura el experimento por lotes";
+            case CONSTRUCCION_VISUAL -> "Configura la construcción visual de la red";
+        };
         JLabel lbl = new JLabel(texto, JLabel.CENTER);
         lbl.setFont(lbl.getFont().deriveFont(Font.BOLD, 14f));
         return lbl;
@@ -97,20 +102,30 @@ public class VentanaConfiguracion extends JDialog {
 
         // Tamaño de red
         agregarFila(form, gbc, row++, "Tamaño de red:", cbTamano);
-        cbTamano.setSelectedIndex(0);
         cbTamano.addItemListener(e -> {
             if (e.getStateChange() == ItemEvent.SELECTED) {
                 actualizarVisibilidadPersonas();
             }
         });
         agregarFila(form, gbc, row++, "N personas (si personalizado):", txtPersonas);
-        txtPersonas.setEnabled(false);
-
-        // Estrategia (solo individual)
-        if (modoIndividual) {
-            agregarFila(form, gbc, row++, "Estrategia de vacunación:", cbEstrategia);
+        // Para el paso a paso conviene poca población: arranca en 25 personalizado.
+        if (modo == ModoSimulacion.CONSTRUCCION_VISUAL) {
+            cbTamano.setSelectedIndex(2);
+            txtPersonas.setText("25");
+            txtPersonas.setEnabled(true);
         } else {
-            JLabel info = new JLabel("(Se ejecutarán las 6 estrategias automáticamente)");
+            cbTamano.setSelectedIndex(0);
+            txtPersonas.setEnabled(false);
+        }
+
+        // Estrategia — solo individual; no aplica en construcción visual
+        if (modo == ModoSimulacion.INDIVIDUAL) {
+            agregarFila(form, gbc, row++, "Estrategia de vacunación:", cbEstrategia);
+        } else if (modo != ModoSimulacion.CONSTRUCCION_VISUAL) {
+            String txt = (modo == ModoSimulacion.LOTE)
+                    ? "(Cada estrategia corre N grafos distintos)"
+                    : "(Se ejecutarán las 6 estrategias automáticamente)";
+            JLabel info = new JLabel(txt);
             java.awt.Color secundario =
                     javax.swing.UIManager.getColor("Label.disabledForeground");
             if (secundario == null) secundario = new java.awt.Color(160, 160, 170);
@@ -118,21 +133,32 @@ public class VentanaConfiguracion extends JDialog {
             agregarFila(form, gbc, row++, "Estrategia:", info);
         }
 
-        // Turnos máximos
-        agregarFila(form, gbc, row++, "Turnos máximos:", spTurnos);
+        // Número de grafos por estrategia (solo lote)
+        if (modo == ModoSimulacion.LOTE) {
+            agregarFila(form, gbc, row++, "Grafos por estrategia:", spGrafos);
+        }
 
-        // Días de recuperación
-        agregarFila(form, gbc, row++, "Días de recuperación:", spRecuperacion);
+        // Pausa entre fases (solo construcción visual)
+        if (modo == ModoSimulacion.CONSTRUCCION_VISUAL) {
+            agregarFila(form, gbc, row++, "Pausa entre fases (ms):", spPausaFases);
+        }
 
-        // Visualización
-        cbVisualizacion.setSelected(true);
-        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
-        form.add(cbVisualizacion, gbc);
+        // Turnos y recuperación no aplican en construcción visual
+        if (modo != ModoSimulacion.CONSTRUCCION_VISUAL) {
+            agregarFila(form, gbc, row++, "Turnos máximos:", spTurnos);
+            agregarFila(form, gbc, row++, "Días de recuperación:", spRecuperacion);
+        }
 
-        // CSV
-        gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
-        form.add(cbCSV, gbc);
-        gbc.gridwidth = 1;
+        // Visualización y CSV no aplican en lote ni en construcción visual
+        if (modo != ModoSimulacion.LOTE && modo != ModoSimulacion.CONSTRUCCION_VISUAL) {
+            cbVisualizacion.setSelected(true);
+            gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
+            form.add(cbVisualizacion, gbc);
+
+            gbc.gridx = 0; gbc.gridy = row++; gbc.gridwidth = 2;
+            form.add(cbCSV, gbc);
+            gbc.gridwidth = 1;
+        }
 
         return form;
     }
@@ -191,20 +217,30 @@ public class VentanaConfiguracion extends JDialog {
             }
             default -> tamano = 80;
         }
-        cfg.setTamanoRed(tamano);
+        cfg.setTamanoRed(tamano);   // recalcula el paciente cero al 5% de la población
 
-        if (modoIndividual) {
+        if (modo == ModoSimulacion.INDIVIDUAL) {
             cfg.setEstrategia((EstrategiaVacunacion) cbEstrategia.getSelectedItem());
         }
         cfg.setTurnosMaximos((Integer) spTurnos.getValue());
         cfg.setDiasRecuperacion((Integer) spRecuperacion.getValue());
-        cfg.setMostrarVisualizacion(cbVisualizacion.isSelected());
-        cfg.setUsarCSV(cbCSV.isSelected());
+        cfg.setMostrarVisualizacion(modo != ModoSimulacion.LOTE && cbVisualizacion.isSelected());
+        cfg.setUsarCSV(modo != ModoSimulacion.LOTE && cbCSV.isSelected());
         return cfg;
     }
 
     /** @return la configuración construida, o {@code null} si el usuario canceló. */
     public ConfiguracionDto getConfiguracion() {
         return resultado;
+    }
+
+    /** Número de grafos por estrategia (solo relevante en modo lote). */
+    public int getNGrafos() {
+        return (Integer) spGrafos.getValue();
+    }
+
+    /** Pausa en ms entre fases (solo relevante en modo construcción visual). */
+    public int getPausaFasesMs() {
+        return (Integer) spPausaFases.getValue();
     }
 }

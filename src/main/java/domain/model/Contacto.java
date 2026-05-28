@@ -4,32 +4,37 @@ package domain.model;
  * Arista dirigida del grafo. Representa que la persona {@code origen} puede
  * contagiar a la persona {@code destino} con probabilidad {@code probContagio}.
  *
- * El peso (probContagio) se calcula al crear la arista según los atributos
- * demográficos de origen y se mantiene en [0.05, 0.95].
+ * El peso se calcula al crear la arista según los atributos demográficos del
+ * origen y se almacena inmutablemente en {@code probContagioBase} ∈ [0.05, 0.95].
  *
- * En runtime, GestorEventos puede reducir este peso multiplicándolo por
- * el factorMultiplicador del evento activo (ej.: × 0.50 en cuarentena).
+ * En runtime, {@code probContagio} es el peso efectivo del turno actual.
+ * {@code AjustadorPesosAdaptativo} lo recompone cada turno como:
+ *   probContagio = clamp( probContagioBase × factorEventos × vigilanciaDestino × factorFatiga )
  */
 public class Contacto {
 
     private final Persona origen;
     private final Persona destino;
 
-    // Probabilidad de que origen contagie a destino en un turno. Rango: [0.05, 0.95].
-    // GestorEventos la reduce al disparar un evento epidemiológico.
+    // Peso original calculado al crear la arista — nunca cambia.
+    private final double probContagioBase;
+
+    // Peso efectivo del turno actual. AjustadorPesosAdaptativo lo recalcula cada turno.
     private double probContagio;
 
     public Contacto(Persona origen, Persona destino, double probContagio) {
         this.origen = origen;
         this.destino = destino;
-        this.probContagio = clamp(probContagio);
+        this.probContagioBase = clamp(probContagio);
+        this.probContagio     = this.probContagioBase;
     }
 
     // ── Getters ────────────────────────────────────────────────────────────────
 
-    public Persona getOrigen() { return origen; }
-    public Persona getDestino() { return destino; }
-    public double getProbContagio() { return probContagio; }
+    public Persona getOrigen()          { return origen; }
+    public Persona getDestino()         { return destino; }
+    public double getProbContagioBase() { return probContagioBase; }
+    public double getProbContagio()     { return probContagio; }
 
     // ── Modificación de peso ───────────────────────────────────────────────────
 
